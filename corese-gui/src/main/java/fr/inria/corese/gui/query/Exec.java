@@ -91,13 +91,13 @@ public class Exec extends Thread {
 	
 	Mappings query(){
 		QueryExec exec =  QueryExec.create(frame.getMyCorese());
-                setCurrent(exec);
+		setCurrent(exec);
 		if (debug) debug(exec);
 		Date d1 = new Date();
 		try {
 			Mappings l_Results = exec.SPARQLQuery(query);
 			Date d2 = new Date();
-                        System.out.println("** Time : " + (d2.getTime() - d1.getTime()) / (1000.0));
+			System.out.println("** Time : " + (d2.getTime() - d1.getTime()) / (1000.0));
 			return l_Results;
 		} catch (EngineException e) {
 			// TODO Auto-generated catch block

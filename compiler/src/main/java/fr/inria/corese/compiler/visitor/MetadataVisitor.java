@@ -37,6 +37,8 @@ public class MetadataVisitor implements QueryVisitor {
     public void visit(ASTQuery ast) {
         init(ast);
         process(null, ast.getBody());
+        System.out.println("Query was visited: " + ast.getText());
+        System.out.println("Query was visited: " + ast.getBody());
     }
 
     @Override
@@ -47,24 +49,32 @@ public class MetadataVisitor implements QueryVisitor {
     void init(ASTQuery ast) {
          this.ast = ast;
          if (ast.getNSM().getNamespace("munc") == null) {
-             ast.defNSNamespace("munc", "http://ns.inria.fr/metauncertainty/v1/");
+             ast.defNSNamespace("munc", "http://ns.inria.fr/munc");
          }
     }
     
     /**
-     *  prefix munc:   <http://ns.inria.fr/metauncertainty/v1>
+        Transfer query :
+            select * where {?s ?p ?o }
 
-    select ?g ?s ?p ?o ?meta where {
-      graph ?g {triple(?s ?p ?o ?Tm)}
-      triple(?g munc:hasUncertainty [] ?Gm)
-      bind(us:metaList(?Tm,?Gm) as ?meta)
-    }
+        to :
+            prefix munc:   <http://ns.inria.fr/munc>
 
-    function us:metaList(?Tm,?Gm) {
-     */
-    
-    /**
-     * name is a named graph
+            select ?g ?s ?p ?o ?meta where {
+                graph ?g {
+                    tripleSubject() as ?s
+                    triplePredicate() as ?p
+                    tripleObject() as ?o
+                    tripleMeta() as ?Tm
+                }
+                
+                ?g munc:hasUncertainty ?Gm
+                bind(us:metaList(?Tm,?Gm) as ?meta)
+            }
+
+        function us:metaList(?Tm,?Gm) {
+            // Here we merge the two lists with respect to the type of every uncertainty feature
+        }
      */
     void process(Atom name, Exp body) {
         ArrayList<Exp> list = new ArrayList<>();
@@ -78,6 +88,8 @@ public class MetadataVisitor implements QueryVisitor {
             else if (exp.isTriple()) {
                 if (name != null) {                  
                     process(exp.getTriple(), list, name);
+                    System.out.println("A triple was processed: "+ exp);
+
                 }
             }
             else {
@@ -102,16 +114,18 @@ public class MetadataVisitor implements QueryVisitor {
       * 2 is the node index of metadata value (1 is node index of object value)
      */
     void process(Triple t, List<Exp> list, Atom name) {
-        if (t.getArgs() != null && !t.getArgs().isEmpty()) {
-            Variable tmeta = t.getArgs().get(0).getVariable();
+        //if (t.getArgs() != null && !t.getArgs().isEmpty()) {
+          //  Variable tmeta = t.getArgs().get(0).getVariable();
             Term gname = ast.createFunction(ast.createQName(NAME));
             Term gmeta = ast.createFunction(ast.createQName(VALUE),
                     gname, ast.createQName(UNCERTAINTY), Constant.create(2));
+            Term tmeta = ast.createFunction(ast.createQName(VALUE),
+                    gname, ast.createQName(UNCERTAINTY), Constant.create(1));
             Term fun = ast.createFunction(ast.createQName(META_LIST), tmeta, gmeta);
             Variable meta = Variable.create(META_VARIABLE + count++);
             Binding b = Binding.create(fun, meta);
             list.add(b);
-        }
+        //}
     }
    
       

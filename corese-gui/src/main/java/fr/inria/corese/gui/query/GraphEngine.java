@@ -95,7 +95,8 @@ public class GraphEngine  {
                         Load.setLimitDefault(max);
                         break;
                     case Command.METADATA:
-                        graph.setMetadata(true);
+						graph.setMetadata(true);
+						System.out.println("Uncertainty Querying allows to make use of uncertainty theories by adding extra metadata to the triples and their contexts.");
                         break;
                     case Command.STRING:
                         Constant.setString(true);

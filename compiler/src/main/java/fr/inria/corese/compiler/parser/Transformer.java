@@ -243,7 +243,7 @@ public class Transformer implements ExpType {
 
         federate(ast);
         visit(ast);
-        
+
         // from extended named graph
         preprocess(ast);
         template(ast);

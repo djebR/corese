@@ -51,9 +51,12 @@ public class Access {
     } ;
     
     public enum Feature  { 
-        FUNCTION_DEFINITION, LINKED_FUNCTION, 
+        FUNCTION_DEFINITION,
+        LINKED_FUNCTION, 
         READ_WRITE_JAVA, 
-        LD_SCRIPT, SPARQL_UPDATE, 
+        LD_SCRIPT,
+        SPARQL_UPDATE, 
+        TRIPLE_STORED_FUNCTION
     }
     
     class FeatureLevel extends HashMap<Feature, Level> {
