@@ -22,7 +22,7 @@ import fr.inria.corese.sparql.triple.printer.SPIN;
 import fr.inria.corese.sparql.triple.update.ASTUpdate;
 import fr.inria.corese.sparql.compiler.java.JavaCompiler;
 import fr.inria.corese.kgram.api.core.ExprType;
-import fr.inria.corese.kgram.api.query.Graphable;
+import fr.inria.corese.kgram.api.query.ASTQ;
 import fr.inria.corese.sparql.api.QueryVisitor;
 import fr.inria.corese.sparql.triple.parser.Access.Level;
 import java.io.IOException;
@@ -45,7 +45,7 @@ import java.util.UUID;
  */
 public class ASTQuery 
         extends ASTObject 
-        implements Keyword, ASTVisitable, Graphable {
+        implements Keyword, ASTVisitable, ASTQ {
    
     /**
      * Use to keep the class version, to be consistent with the interface
@@ -72,6 +72,7 @@ public class ASTQuery
     static final String FUN_PREF = NSManager.EXT_PREF+":";
     static final String NL = System.getProperty("line.separator");
     static int nbt = 0; // to generate an unique id for a triple if needed
+    static int nbbnode = 0; // createBlankNode()
     public final static int QT_SELECT = 0;
     public final static int QT_ASK = 1;
     public final static int QT_CONSTRUCT = 2;
@@ -83,10 +84,15 @@ public class ASTQuery
     public final static int L_LIST = 1;
     public final static int L_DEFAULT = 0;
     
+    public static int LIMIT_DEFAULT = Integer.MAX_VALUE;
+    
     public static final String OUT = "?out";
     public static final String IN = "?in";
     public static final String IN2 = "?in_1";
-   
+    
+    public static boolean REFERENCE_DEFINITION_BNODE = true;
+    public static boolean REFERENCE_QUERY_BNODE      = true;
+
     /**
      * if graph rule
      */
@@ -160,20 +166,21 @@ public class ASTQuery
      */
     boolean constructCompiled = false;
     // construct in the std graph:
-    boolean isAdd = false;
+    boolean isInsert = false;
     boolean describeAll = false;
     boolean isBind = false;
     private boolean ldscript = false;
+    private boolean insideWhere = false;
     /**
      * max cg result
      */
-    int MaxResult = Integer.MAX_VALUE;
-    int DefaultMaxResult = Integer.MAX_VALUE;
+    int MaxResult = LIMIT_DEFAULT;
+    int DefaultMaxResult = LIMIT_DEFAULT;
     /**
      * max projection
      */
-    int MaxProjection = Integer.MAX_VALUE;
-    int DefaultMaxProjection = Integer.MAX_VALUE;
+    int MaxProjection = LIMIT_DEFAULT;
+    int DefaultMaxProjection = LIMIT_DEFAULT;
     // path length max
     int DefaultMaxLength = 5;
     int MaxDisplay = 10000;
@@ -182,6 +189,7 @@ public class ASTQuery
      */
     int Offset = 0;
     int nbBNode = 0;
+    int nbtriple = 0; // rdf*
     int nbd = 0; // to generate an unique id for a variable if needed
     int nbfun = 0, nbvar = 0;
     int resultForm = QT_SELECT;
@@ -192,7 +200,6 @@ public class ASTQuery
      */
     float Threshold = 1;
     float DefaultThreshold = 1;
-    //byte access = Cst.ADMIN;
     // predefined ns from server
     String namespaces, base;
     // relax by dd:distance
@@ -228,7 +235,7 @@ public class ASTQuery
     List<Variable> argList = new ArrayList<Variable>();
     List<Expression> sort = new ArrayList<Expression>();
     List<Expression> lGroup = new ArrayList<Expression>();
-    List<Expression> relax = new ArrayList<Expression>();
+    List<Atom> relax = new ArrayList<Atom>();
     private List<QueryVisitor> visitList;
     private Dataset // Triple store default dataset
             defaultDataset,
@@ -270,6 +277,8 @@ public class ASTQuery
     private List<Atom> serviceList;
     private List<Constant> predicateList;
     private List<Triple> tripleList;
+    private fr.inria.corese.kgram.core.Query updateQuery;
+    private AccessRight accessRight;
 
     /**
      * @return the defaultDataset
@@ -451,6 +460,7 @@ public class ASTQuery
         predicateList = new ArrayList<>();
         tripleList = new ArrayList<>();
         visitList = new ArrayList<>();
+        setAccessRight(new AccessRight());
     }
 
     ASTQuery(String query) {
@@ -486,6 +496,7 @@ public class ASTQuery
         ASTQuery ast = create();
         ast.setGlobalAST(this);
         ast.setNSM(getNSM());
+        ast.setAccessRight(getAccessRight());
         return ast;
     }
 
@@ -634,7 +645,37 @@ public class ASTQuery
         }
         dataBlank.put(blank.getLabel(), blank);
     }
-
+      
+    Variable tripleReferenceQuery() {
+        if (REFERENCE_QUERY_BNODE) {
+            return tripleReferenceBnode();
+        }
+        return tripleReferenceVariable();
+    }
+    
+    Variable tripleReferenceVariable() {
+        return Variable.create("?t_" + nbvar++);
+    } 
+    
+    Variable tripleReferenceBnode() {
+        return newBlankNode();
+    } 
+    
+    Constant tripleReferenceDefinition() {
+        if (REFERENCE_DEFINITION_BNODE) {
+            return tripleReferenceConstantBnode();
+        }
+        return tripleReferenceConstantURI();
+    }
+    
+    Constant tripleReferenceConstantBnode() {
+        return createBlankNode();
+    }
+    
+    Constant tripleReferenceConstantURI() {
+        return Constant.createResource(NSManager.USER+"triple"+nbt++); 
+    }
+       
     public void createDataBlank() {
         dataBlank = new HashMap<String, Atom>();
     }
@@ -698,7 +739,7 @@ public class ASTQuery
     }
     
     public String getUpdateTitle() {
-        if (isAdd()) {
+        if (isInsert()) {
             return KeywordPP.INSERT;
         }
         if (isDelete()) {
@@ -780,20 +821,24 @@ public class ASTQuery
     public void setLimit(int maxResult) {
         MaxResult = maxResult;
     }
+    
+    public int getLimit() {
+        return MaxResult;
+    }
 
     public void setMore(boolean more) {
         this.more = more;
     }
 
-    public void setRelax(List<Expression> l) {
+    public void setRelax(List<Atom> l) {
         relax = l;
     }
 
-    public void addRelax(Expression e) {
+    public void addRelax(Atom e) {
         relax.add(e);
     }
 
-    public List<Expression> getRelax() {
+    public List<Atom> getRelax() {
         return relax;
     }
 
@@ -887,6 +932,10 @@ public class ASTQuery
     public int getMaxResult() {
         return MaxResult;
     }
+    
+    public boolean hasLimit() {
+        return getMaxResult() != LIMIT_DEFAULT;
+    }
 
     public boolean isMore() {
         return more;
@@ -945,6 +994,13 @@ public class ASTQuery
 
     public boolean isRule() {
         return rule;
+    }
+    
+    public List<Variable> getSelect() {
+        if (isSelectAll()) {
+            return getSelectVariables();
+        }
+        return getSelectVar();
     }
     
     public List<Variable> getSelectVariables() {
@@ -1039,7 +1095,7 @@ public class ASTQuery
     /**
      * BIND( f(?x) as ?y )
      */
-    public Exp createBind(Expression exp, Variable var) {
+    public Binding createBind(Expression exp, Variable var) {
        return Binding.create(exp, var);
     }
     
@@ -1127,8 +1183,8 @@ public class ASTQuery
     /**
      * function name(el) { exp } -> function (name(el), exp)
      */
-    public Function defineFunction(Constant name, ExpressionList el, Expression exp, Metadata annot) {
-        Function fun = defFunction(name, el, exp, annot);
+    public Function defineFunction(Constant name, Constant type, ExpressionList el, Expression exp, Metadata annot) {
+        Function fun = defFunction(name, type, el, exp, annot,false);
         record(fun);    
         return fun;
     }
@@ -1139,11 +1195,10 @@ public class ASTQuery
              // lambda((?x, ?y)){ exp } 
              // ->
              // lambda(?m) { let ((?x, ?y) = ?m) { exp }}
-             Variable var = new Variable(LET_VAR + nbd++);
-             ExpressionList list = new ExpressionList(var);
-             Term deflet = defLet(el.getList().get(0), var);
-             Term let = let(deflet, exp);
-             return defineLambda(list, let, annot);
+             Variable var = newLetVar();
+             ExpressionList varList = new ExpressionList(var);
+             Term let = let(defLet(el.getList().get(0), var), exp);
+             return defineLambda(varList, let, annot);
          }
          return getGlobalAST().defineLambdaUtil(el, exp, annot);
      }
@@ -1153,8 +1208,8 @@ public class ASTQuery
     }
         
     Function defineLambdaUtil(Constant name, ExpressionList el, Expression exp, Metadata annot) {    
-        Function fun = defFunction(name, el, exp, annot);
-        fun.defineLambda();
+        Function fun = defFunction(name, null, el, exp, annot, true);
+        //fun.defineLambda();
         record(fun);    
         return fun;
     }
@@ -1178,25 +1233,22 @@ public class ASTQuery
         }
         Term t = createFunction(uri, el);
         Function fun = defineLambdaUtil(el, t, null);
-//        Function fun = defFunction(functionName(), el, t, null);
-//        fun.setLambda(true);
-//        record(fun);
         return fun;
     }
            
     void record(Function fun){
          if (fun.isLambda()){
-             lambdaDefine.defineFunction(fun);
+             lambdaDefine.define(fun);
          }
          else {
-             define.defineFunction(fun);
+             define.define(fun);
          }
     }
-        
-    Function defFunction(Constant name, ExpressionList el, Expression exp, Metadata annot) {
+           
+    Function defFunction(Constant name, Constant type, ExpressionList el, Expression exp, Metadata annot, boolean lambda) {
         Term fun = createFunction(name, el);      
-        Function def = new Function(fun, exp);
-        annotate(def, annot);
+        Function def = new Function(fun, type, exp, lambda);
+        def.annotate(annot);
         if (el.getTable() != null){
             def.setTable(el.getTable());
         }
@@ -1215,14 +1267,11 @@ public class ASTQuery
             el.add(createVariable(FUN_VAR + i));
         }
         Term t = createFunction(createQNameURI(name), el);
-        Function fun = defineFunction(c, el, t, null);
+        Function fun = defineFunction(c, null, el, t, null);
         fun.compile(this);
         return fun;
     }
 
-    public void annotate(Function t, Metadata la) {
-        t.annotate(la);
-    }
 
     public void setMetadata(Metadata m) {
          metadata = m;
@@ -1232,10 +1281,12 @@ public class ASTQuery
          if (m != null) {
             setMetadata(m);
             annotate(m);
+            // to get @level @access metadata:
+            //initAccessRight();
         }
     }
     
-     public void addMetadata(Metadata m){
+    public void addMetadata(Metadata m){
          if (metadata == null){
             setMetadata(m);
          }
@@ -1249,6 +1300,17 @@ public class ASTQuery
         return metadata;
     }
     
+    /** 
+     * this is a generated update ast
+     * ga is the global update query
+     * share access right
+    */
+    public void shareAccess(ASTQuery ga) {
+        if (AccessRight.isActive()) {
+            setAccessRight(ga.getAccessRight());
+        }
+    }
+        
     public String getMetadataValue(int type) {
         return metadata.getValue(type);
     }
@@ -1302,7 +1364,7 @@ public class ASTQuery
 
     public Expression defineBody(ExpressionList lexp) {
         Expression exp;
-        if (lexp.size() == 0) {
+        if (lexp.isEmpty()) {
             exp = Constant.create(true);
         } else if (lexp.size() == 1) {
             exp = lexp.get(0);
@@ -1333,32 +1395,82 @@ public class ASTQuery
      * @param body
      * @return
      */
-    public Term let(ExpressionList el, Expression body) {
-        return defineLet(el, body, 0);
+    
+    Let let(Expression exp, Expression body) {
+        List<Expression> list = new ArrayList<>();
+        list.add(exp);
+        return let(list, body, false);
+    }
+    
+    Let let(List<Expression> el, Expression body) {
+        return let(el, body, false);
+    }
+    
+    public Let let(List<Expression> el, Expression body, boolean dynamic) {
+        expandLet(el);
+        Let let = defineLet2(el, body, 0, dynamic);
+        return let;
+    }
+    
+    // new version where let has several declarations
+    Let defineLet2(List<Expression> el, Expression body, int n, boolean dynamic) {
+        return new Let(el, body, dynamic);
     }
 
-    public Term defineLet(ExpressionList el, Expression body, int n) {
+    // old version where let has one declaration
+    Let defineLet(List<Expression> el, Expression body, int n, boolean dynamic) {
         if (n == el.size() - 1) {
-            return let(el.get(n), body);
+            return createLet(el.get(n), body, dynamic);
         }
-        return let(el.get(n), defineLet(el, body, n + 1));
+        return createLet(el.get(n), defineLet(el, body, n + 1, dynamic), dynamic);
+    }
+    
+    // expand ((x, y)) = exp
+    void expandLet(List<Expression> expList) {
+        for (int i = 0; i < expList.size();) {
+            Expression exp = expList.get(i);
+            if (exp.getArg(0).isTerm()) {
+                // match() = exp
+                Term match = exp.getArg(0).getTerm();
+                List<Expression> list;
+                
+                if (match.isNested()) {
+                    list = letList(match.getNestedList(), exp.getArg(1));
+
+                } else {
+                    list = expandMatch(exp);
+                }
+
+                int j = 0;
+                for (Expression ee : list) {
+                    if (j++ == 0) {
+                        expList.set(i++, ee);
+                    } else {
+                        expList.add(i++, ee);
+                    }
+                }
+                
+                if (list.isEmpty()) {
+                    i++;
+                }
+            } else {
+                i++;
+            }
+        }
+    }
+   
+    Let createLet(Expression exp, Expression body, boolean dynamic) {
+        return new Let(exp, body, dynamic);
+    }
+          
+    Variable newLetVar() {
+        return new Variable(LET_VAR + nbd++);
     }
     
     /**
-     * exp: var = ee | match(var_1, .., var_n) = ee
-     * match(?x, ?y) is AST for let ((?x, ?y) = ee)
-     * this match() AST is compiled by Processor
-     * nested: let (((?x, ?y)) = select where)
-     */
-    Term let(Expression exp, Expression body) {
-        if (exp.getArg(0).isTerm() && exp.getArg(0).getTerm().isNested()) {
-            return let(exp.getArg(0).getTerm().getNestedList(), exp.getArg(1), body);
-        }
-        return new Let(exp, body);
-    }
-          
-    /**
-     * let(varList = exp)
+     * let ((x, y) = exp)
+     * (x, y) was compiled as nested match((x, y)) 
+     * we have now let(match(varList) = exp)
      * compile as 
      * let (var = xt:get(exp, 0), match(varList) = var){ body }
      * use case: let (((?x, ?y)) = select where)
@@ -1366,29 +1478,48 @@ public class ASTQuery
      * use case: let (((?var, ?val)) = ?m)
      * get first Binding, match it
      */
-    
-     Term let(ExpressionList expList, Expression exp, Expression body) { 
+    ArrayList<Expression> letList(ExpressionList expList, Expression exp) { 
          if (! exp.isTerm() || expList.getList().size() == 1){
-            return let(expList, exp, body, 0);
+            return letList(expList, exp, 0);
          }
          // let (var = exp)
-         Variable var = new Variable(LET_VAR + nbd++);
-         return let(defLet(var, exp), let(expList, var, body, 0));
+         Variable var = newLetVar();
+         ArrayList<Expression> letList = letList(expList, var, 0);
+         letList.add(0, defLet(var, exp));
+         return letList;
      }
     
     // recurse on  expList 
-    Term let(ExpressionList expList, Expression exp, Expression body, int n) { 
-        Variable var = new Variable(LET_VAR + nbd++);
+    ArrayList<Expression> letList(ExpressionList expList, Expression exp, int n) { 
+        Variable var = newLetVar();
         ExpressionList list = expList.getList().get(n) ;
         Term fst = defGet(var, exp, n);
-        Term snd = defLet(list, var);  
-        Expression rest =  body;
+        List<Expression> alist = defineExpand(list, var);
+        ArrayList<Expression> letList;
         if (n+1 < expList.getList().size()){
-            rest = let(expList, exp, body, n+1);
+            letList = letList(expList, exp, n+1);
         }
-        return new Let(fst, new Let(snd, rest));
+        else {
+            letList = new ArrayList<>();           
+        }
+        for (int i = 0; i<alist.size(); i++) {
+            letList.add(i, alist.get(i));
+        }
+        letList.add(0, fst);
+        return letList;
     }
-
+    
+    public List<Expression> defineExpand(ExpressionList expList, Expression exp) {
+         Term matchTerm = defLet(expList, exp); 
+         return expandMatch(matchTerm);
+    }
+    
+    public List<Expression> defLetList(Variable var, Constant type, Expression exp) {
+        ArrayList<Expression> list = new ArrayList<>();
+        list.add(defLet(var, type, exp));
+        return list;
+    }
+    
     public Term defLet(Variable var, Constant type, Expression exp) {
         return Term.create("=", var, exp);
     }
@@ -1397,6 +1528,11 @@ public class ASTQuery
         return Term.create("=", var, exp);
     }
     
+    /**
+     * place holder to manage lvar = (x | y) ;
+     * return (match(lvar) = exp)
+     * match() is expanded in let by expandMatch or letList
+     */
     public Term defLet(ExpressionList lvar, Expression exp) {
         complete(lvar, exp, true);
         Term t = createFunction(Processor.MATCH, lvar);
@@ -1411,61 +1547,69 @@ public class ASTQuery
      * xt:get(?l, 1), ?y = xt:get(?l, 2)) {}
      *
      */
-    void processMatch(Let term) {
-        Expression match = term.getVariableDefinition().getArg(0);
-        Expression list  = term.getDefinition();
-
+    @Deprecated
+    void processMatch(Let let) {
+        Expression match = let.getVariableDefinition().getArg(0);
         if (match.isFunction() && match.getLabel().equals(Processor.MATCH)) {
-            ExpressionList l = new ExpressionList();
-
-            Variable var;
-            if (list.isVariable()) {
-                var = list.getVariable();
-            } else {
-                // eval list exp once, store it in variable
-                var = Variable.create(LET_VAR + nbd++);
-                l.add(defLet(var, list));
-            }
-
-            ExpressionList nestedList =  match.getTerm().getNestedList();
-            boolean isRest  = nestedList != null && nestedList.isRest();
-            int subList     = nestedList.getSubListIndex();
-            int lastElement = nestedList.getLastElementIndex();
-            int nbLast      = 0;
-            if (subList >= 0 && lastElement >= 0) {
-                nbLast = nestedList.size() - lastElement;
-            }
-            int last = nestedList.size() - 1;
-            /**
-             * (?a ?b | ?l . ?c ?d)
-             * subList = 2  -- index of ?l subList variable
-             * lastElem = 3 -- index of last elements variable ?c            /**
-             * (?a ?b | ?l . ?c ?d)
-             * subList = 2  -- index of ?l subList variable
-             * lastElem = 3 -- index of last elements variable ?c
-             */
-
-            for (int i = 0; i < match.getArgs().size(); i++) {
-                Expression arg = match.getArg(i);
-                
-                if (i == subList) {
-                    l.add(defRest(arg.getVariable(), var, i, nbLast));
-                }
-                else if (lastElement >= 0 && i >= lastElement) {
-                    l.add(defGenericGetLast(arg.getVariable(), var, last - i));
-                }
-                else {
-                    l.add(defGenericGet(arg.getVariable(), var, i));
-                }
-            } 
-            if (l.isEmpty()) {
-                Term t = defLet(Variable.create("?_tmp_"), Constant.create(true));
-                l.add(t);
-            }
-            Term let = defineLet(l, term.getBody(), 0);
-            term.setArgs(let.getArgs());
+            List<Expression> expList = expandMatch(let.getVariableDefinition());
+            Term tmpLet = let(expList, let.getBody(), let.isDynamic());
+            let.setArgs(tmpLet.getArgs());
         }
     }
+    
+    /**
+     * term : match(var) = list
+     */
+    List<Expression> expandMatch(Expression term) {
+        Expression match = term.getArg(0);
+        Expression list  = term.getArg(1);
+        ArrayList<Expression> expList = new ArrayList<>();
+
+        Variable var;
+        if (list.isVariable()) {
+            var = list.getVariable();
+        } else {
+            // eval list exp once, store it in variable
+            var = newLetVar();
+            expList.add(defLet(var, list));
+        }
+
+        ExpressionList nestedList = match.getTerm().getNestedList();
+        boolean isRest = nestedList != null && nestedList.isRest();
+        int subList = nestedList.getSubListIndex();
+        int lastElement = nestedList.getLastElementIndex();
+        int nbLast = 0;
+        if (subList >= 0 && lastElement >= 0) {
+            nbLast = nestedList.size() - lastElement;
+        }
+        int last = nestedList.size() - 1;
+        /**
+         * (?a ?b | ?l . ?c ?d) subList = 2 -- index of ?l subList variable
+         * lastElem = 3 -- index of last elements variable ?c /** (?a ?b | ?l .
+         * ?c ?d) subList = 2 -- index of ?l subList variable lastElem = 3 --
+         * index of last elements variable ?c
+         */
+
+        for (int i = 0; i < match.getArgs().size(); i++) {
+            Expression arg = match.getArg(i);
+
+            if (i == subList) {
+                expList.add(defRest(arg.getVariable(), var, i, nbLast));
+            } else if (lastElement >= 0 && i >= lastElement) {
+                expList.add(defGenericGetLast(arg.getVariable(), var, last - i));
+            } else {
+                expList.add(defGenericGet(arg.getVariable(), var, i));
+            }
+        }
+        
+        if (expList.isEmpty()) {
+            Term t = defLet(Variable.create("?_tmp_"), Constant.create(true));
+            expList.add(t);
+        }
+        
+        return expList;
+    }
+    
     
     /**
          * map(rq:fun, ?list)
@@ -1525,7 +1669,7 @@ public class ASTQuery
                 ASTQuery ast = query.getQuery();
                 ast.validate();
                 ExpressionList el = new ExpressionList();
-                for (Variable var : ast.getSelectVariables()) {
+                for (Variable var : ast.getSelect()) { //ast.getSelectVariables()) {
                     el.add(var);
                 }
                 lvar.add(el);
@@ -1543,19 +1687,13 @@ public class ASTQuery
             if (query != null){
                 ASTQuery ast = query.getQuery();
                 ast.validate();
-                for (Variable var : ast.getSelectVariables()) {
+                for (Variable var : ast.getSelect()) { //ast.getSelectVariables()) {
                     lvar.add(var);
                 }
             }
         }
     }
     
-    public Term defLet2(ExpressionList lvar, Expression exp) {
-        Term t = createFunction(Processor.MATCH, lvar);
-        t.setNestedList(lvar);
-        t.setNested(lvar.isNested());
-        return Term.create("=", t, exp);
-    }
     /**
      * 
      * 
@@ -1606,6 +1744,7 @@ public class ASTQuery
         return defLet(var, fun);
     }
     
+    @Deprecated
     public Term defineLoop(Variable var, ExpressionList lvar, 
             Expression exp, Expression body, boolean isLoop){
         if (lvar == null){
@@ -1621,8 +1760,8 @@ public class ASTQuery
     }
 
     /**
-     * for ((?s, ?p, ?o) in exp){body} -> for (?var in exp){ let ((?s, ?p, ?o) =
-     * ?var){body}} }
+     * for ((?s, ?p, ?o) in exp){body} -> 
+     * for (?var in exp){ let ((?s, ?p, ?o) = ?var) { body }} }
      */
     public Term defFor(ExpressionList lvar, Expression exp, Expression body) {
         Variable var = new Variable(FOR_VAR + nbd++);
@@ -1640,6 +1779,7 @@ public class ASTQuery
      *   reduce(rq:concat, ?list)
      * }
      */
+    @Deprecated
     public Term defLoop(Variable var, Expression exp, Expression body) {
         Variable list = new Variable("?_list_" + nbd++);
         Expression let = defLet(list, createFunction(createQName("xt:list")));
@@ -1650,18 +1790,19 @@ public class ASTQuery
                 createQName("rq:concat"), list);
         Expression stmt = createFunction(Constant.createResource("sequence"), 
                 loop, app);
-        return let(let, stmt);
+        return createLet(let, stmt, false);
     }
 
     /**
      * loop ((?s, ?p, ?o) in exp){body} -> for (?var in exp){ let ((?s, ?p, ?o) =
      * ?var){body}} }
      */
+    @Deprecated
     public Term defLoop(ExpressionList lvar, Expression exp, Expression body) {
         Variable var = new Variable(FOR_VAR + nbd++);
-        return defLoop(var, exp, let(defLet(lvar, var), body));
+        return defLoop(var, exp, createLet(defLet(lvar, var), body, false));
     }
-
+    
     public void exportFunction(Expression def) {
         def.getArg(0).setPublic(true);
         def.setPublic(true);
@@ -1773,10 +1914,16 @@ public class ASTQuery
      }
     
 
-    public Triple createTriple(Expression exp) {
+    public Exp checkCreateFilter(Expression exp) {
         checkBlank(exp);
-        return Triple.create(exp);
+        return createFilter(exp);
     }
+    
+    public static Exp createFilter(Expression exp) {
+        return Filter.create(exp);
+        //return Triple.create(exp);
+    }
+
 
     public Term createList(ExpressionList el) {
         Term list = Term.list();
@@ -1790,7 +1937,7 @@ public class ASTQuery
         return Term.negation(e);
     }
 
-    public RDFList createRDFList(List<Expression> list) {
+    public RDFList createRDFList(List<Atom> list) {
         return createRDFList(list, 0);
     }
 
@@ -1816,7 +1963,7 @@ public class ASTQuery
      * starting first blank node with function head() i.e. the subject of first
      * triple
      */   
-    public RDFList createRDFList(List<Expression> list, int arobase) {
+    public RDFList createRDFList(List<Atom> list, int arobase) {
         RDFList rlist = new RDFList(newBlankNode(), list);
         if (arobase == L_DEFAULT) {
             arobase = listType;
@@ -1900,6 +2047,10 @@ public class ASTQuery
 
     public static Variable createVariable(String s) {
         return Variable.create(s);
+    }
+    
+    public Variable createVariable() {
+        return Variable.create("?_var_" + nbvar++);
     }
 
     public static Variable createVariable(String s, ASTQuery aq) {
@@ -2319,18 +2470,6 @@ public class ASTQuery
         this.resultForm = resultForm;
     }
 
-    public boolean isAdd() {
-        return isAdd;
-    }
-
-    public boolean isInsert() {
-        return isAdd;
-    }
-
-    public void setAdd(boolean b) {
-        isAdd = b;
-    }
-
     public void setWhere(boolean b) {
         where = b;
     }
@@ -2354,6 +2493,10 @@ public class ASTQuery
 
     public Variable newBlankNode() {
         return newBlankNode(BNVAR + getNbBNode());
+    }
+    
+    public Constant createBlankNode() {
+        return Constant.createBlank("_:bb" + nbbnode++);
     }
 
     public Variable metaVariable() {
@@ -2492,16 +2635,10 @@ public class ASTQuery
     // TODO: clean
     private void compileConstruct() {
         if (getConstruct() != null) {
-            // kgram:
             setInsert(getConstruct());
             Exp exp = getConstruct();
-            //Env env = new Env(false);
-            // assign graph ?src variable to inner triples
-            // TODO: for backward rules only
-            //exp.setSource(env, null, false);
             setConstruct(exp);
         } else if (getInsert() != null) {
-            // kgram update
             setConstruct(getInsert());
         }
     }
@@ -2574,7 +2711,7 @@ public class ASTQuery
         setDescribeAll(describeAllTemp);
         setBody(bodyExpLocal);
 
-        if (true){ //isKgram()) {
+        if (true){ 
             setInsert(template);
             setConstruct(template);
         }
@@ -2595,7 +2732,7 @@ public class ASTQuery
     
     public String toJava() throws IOException{
           JavaCompiler jc = new JavaCompiler();
-          jc.toJava(this);
+          jc.compile(this);
           return jc.toString();
     }
     
@@ -2607,37 +2744,100 @@ public class ASTQuery
     
    
 
-     boolean isData() {
+    boolean isData() {
         return isInsertData() || isDeleteData();
     }
 
     
 
-    public void setConstruct(Exp constructExp) {
-        this.setResultForm(QT_CONSTRUCT);
-        this.constructExp = constructExp;
-    }
 
     public void duplicateConstruct(Exp exp) {
-        boolean check = checkConstruct(exp);
-        if (check) {
+        boolean check = checkTriple(exp);
+        if (checkTriple(exp)) {
             setConstruct(exp);
-        } else {
+        } 
+        else if (checkTripleList(exp)) {
+            setConstruct(exp.expandList());
+        }
+        else {
             setConstruct(null);
         }
     }
+    
 
     /**
      * construct where {exp} construct = duplicate(exp) and exp should have no
      * filter and no graph pattern
      */
-    boolean checkConstruct(Exp body) {
+    boolean checkTriple(Exp body) {
         for (Exp exp : body.getBody()) {
-            if (!exp.isTriple() || exp.isExp()) {
+            if (!exp.isTriple()) {
                 return false;
             }
         }
         return true;
+    }
+    
+    boolean checkTripleList(Exp body) {
+        for (Exp exp : body.getBody()) {
+            if (!exp.isTriple() && ! exp.isRDFList()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public void setConstruct(Exp constructExp) {
+        this.setResultForm(QT_CONSTRUCT);
+        this.constructExp = constructExp;
+    }
+    
+    public void setDelete(boolean b) {
+        if (b) {
+            setResultForm(QT_DELETE);
+            isDelete = b;
+        }
+    }
+
+    public void setInsert(boolean b) {
+        if (b) {
+            setResultForm(ASTQuery.QT_CONSTRUCT);
+            setAdd(true);
+        }
+    }
+    
+    @Override
+    public boolean isInsert() {
+        return isInsert;
+    }
+    
+    @Override
+    public boolean isUpdateInsert() {
+        return (isInsert() && ! isInsertData()) || (getUpdate()!=null && getUpdate().isInsert());
+    }
+    
+    @Override
+    public boolean isUpdateInsertData() {
+        return isInsertData() || (getUpdate()!=null && getUpdate().isInsertData());
+    }
+    
+    @Override
+    public boolean isUpdateDelete() {
+        return (isDelete() && !  isDeleteData()) || (getUpdate()!=null && getUpdate().isDelete());
+    }
+    
+    @Override
+    public boolean isUpdateDeleteData() {
+        return isDeleteData() || (getUpdate()!=null && getUpdate().isDeleteData());
+    }
+    
+    @Override
+    public boolean isUpdateLoad() {
+        return  (getUpdate()!=null && getUpdate().isLoad());
+    }
+    
+    public void setAdd(boolean b) {
+        isInsert = b;
     }
 
     public Exp getConstruct() {
@@ -2788,6 +2988,22 @@ public class ASTQuery
     public boolean hasService() {
         return service != null;
     }
+    
+    public ASTQuery getSetSubQuery(Service s) {
+        Exp bgp = s.getBodyExp();
+        ASTQuery aa;
+
+        if (bgp.size() == 1 && bgp.get(0).isQuery()) {
+            aa = bgp.get(0).getQuery();
+        } else {
+            aa = subCreate();
+            aa.setSelectAll(true);
+            aa.setBody(bgp);
+            s.setBodyExp(bgp(Query.create(aa)));
+        }
+        return aa;
+    }
+    
 
     public void defNSNamespace(String prefix, String ns) {
         if (prefix.endsWith(":")) {
@@ -2837,14 +3053,12 @@ public class ASTQuery
     }
 
     public void setHaving(Exp exp) {
-        if (exp.getBody().isEmpty()) {
-            return;
+        if (!exp.getBody().isEmpty()) {
+            Exp body = exp.getBodyExp();
+            if (body.isFilter()) {
+                setHaving(body.getFilter());
+            }
         }
-        Exp body = exp.getBody().get(0);
-        if (!body.isTriple()) {
-            return;
-        }
-        setHaving(body.getTriple().getExp());
     }
 
     public void setHaving(Expression exp) {
@@ -2935,7 +3149,7 @@ public class ASTQuery
                }
             }
             
-            Exp b = createBind(val.getExp(), meta);
+            Binding b = createBind(val.getExp(), meta);
             val.setBind(b); 
         }
        
@@ -3067,32 +3281,22 @@ public class ASTQuery
         return (getResultForm() == QT_ASK);
     }
 
+    @Override
     public boolean isConstruct() {
         return (getResultForm() == QT_CONSTRUCT);
     }
 
+    @Override
     public boolean isSelect() {
         return (getResultForm() == QT_SELECT);
     }
 
+    @Override
     public boolean isUpdate() {
         return (getResultForm() == QT_UPDATE);
     }
 
-    public void setDelete(boolean b) {
-        if (b) {
-            setResultForm(QT_DELETE);
-            isDelete = b;
-        }
-    }
-
-    public void setInsert(boolean b) {
-        if (b) {
-            setResultForm(ASTQuery.QT_CONSTRUCT);
-            setAdd(true);
-        }
-    }
-
+    @Override
     public boolean isDelete() {
         return isDelete;
     }
@@ -3105,13 +3309,13 @@ public class ASTQuery
         return isUpdate() || isInsert() || isDelete();
     }
 
-    public boolean isConstructCompiled() {
-        return constructCompiled;
-    }
-
-    public void setConstructCompiled(boolean constructCompiled) {
-        this.constructCompiled = constructCompiled;
-    }
+//    public boolean isConstructCompiled() {
+//        return constructCompiled;
+//    }
+//
+//    public void setConstructCompiled(boolean constructCompiled) {
+//        this.constructCompiled = constructCompiled;
+//    }
 
     public void setDefaultThreshold(float threshold) {
         DefaultThreshold = threshold;
@@ -3178,6 +3382,23 @@ public class ASTQuery
 
     boolean hasExpression(Variable var) {
         return getExpression(var) != null;
+    }
+    
+    public List<Expression> getModifierExpressions() {
+        ArrayList<Expression> list = new ArrayList<>();
+        for (Expression exp : getSelectFunctions().values()) {
+            list.add(exp);
+        }
+        for (Expression exp : getGroupBy()) {
+            list.add(exp);
+        }
+        for (Expression exp : getOrderBy()) {
+            list.add(exp);
+        }
+        if (getHaving() != null) {
+            list.add(getHaving());
+        }
+        return list;
     }
 
     public Expression getExtExpression(String name) {
@@ -3485,8 +3706,8 @@ public class ASTQuery
         return new Minus(abgp(e1), abgp(e2));
     }
     
-    public Triple filter(Expression e) {
-        return Triple.create(e);
+    public Exp filter(Expression e) {
+        return createFilter(e);
     }
     
     public Term count(Expression exp) {
@@ -3499,6 +3720,52 @@ public class ASTQuery
             t.add(e);
         }
         return t;
+    }
+
+    /**
+     * @return the updateQuery
+     */
+    public fr.inria.corese.kgram.core.Query getUpdateQuery() {
+        return updateQuery;
+    }
+
+    /**
+     * @param updateQuery the updateQuery to set
+     */
+    public void setUpdateQuery(fr.inria.corese.kgram.core.Query updateQuery) {
+        this.updateQuery = updateQuery;
+    } 
+    
+    // does not overload annotation
+    public void defReadAccess(byte readAccess) {
+//        if (getReadAccess() == UNDEFINED) {
+//            setReadAccess(readAccess);
+//        }
+    }
+    // does not overload annotation
+    public void defWriteAccess(byte readAccess) {
+//        if (getWriteAccess() == UNDEFINED) {
+//            setWriteAccess(readAccess);
+//        }
+    }
+    
+    public AccessRight getAccess() {
+        return getGlobalAST().getAccessRight();
+    }
+    
+
+    /**
+     * @return the accessRight
+     */
+    public AccessRight getAccessRight() {
+        return accessRight;
+    }
+
+    /**
+     * @param accessRight the accessRight to set
+     */
+    public void setAccessRight(AccessRight accessRight) {
+        this.accessRight = accessRight;
     }
     
 }

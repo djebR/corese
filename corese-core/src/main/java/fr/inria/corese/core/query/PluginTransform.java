@@ -12,7 +12,6 @@ import fr.inria.corese.sparql.triple.parser.Term;
 import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.kgram.core.Query;
@@ -22,6 +21,7 @@ import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.load.QueryLoad;
 import fr.inria.corese.core.transform.TemplateVisitor;
 import fr.inria.corese.core.transform.Transformer;
+import static fr.inria.corese.kgram.api.core.PointerType.GRAPH;
 import fr.inria.corese.sparql.api.GraphProcessor;
 import java.io.IOException;
 import java.io.InputStream;
@@ -429,7 +429,7 @@ public class PluginTransform implements ComputerProxy, ExprType {
 
         if (dtgname != null) {
             // transform named graph
-            if (dtgname.isPointer() && dtgname.pointerType() == Pointerable.GRAPH_POINTER){
+            if (dtgname.isPointer() && dtgname.pointerType() == GRAPH){
                 // dtgname contains a Graph
                 // use case: let (?g = construct {} where {}){ 
                 // st:apply-templates-with-graph(st:navlab, ?g) }

@@ -26,7 +26,6 @@ import fr.com.hp.hpl.jena.rdf.arp.RDFListener;
 import fr.com.hp.hpl.jena.rdf.arp.StatementHandler;
 import fr.inria.corese.sparql.exceptions.QueryLexicalException;
 import fr.inria.corese.sparql.exceptions.QuerySyntaxException;
-import fr.inria.corese.sparql.triple.api.Creator;
 import fr.inria.corese.sparql.triple.parser.Constant;
 import fr.inria.corese.sparql.triple.parser.LoadTurtle;
 import fr.inria.corese.sparql.triple.parser.NSManager;
@@ -43,9 +42,15 @@ import fr.inria.corese.core.load.jsonld.JsonldLoader;
 import fr.inria.corese.core.load.rdfa.CoreseRDFaTripleSink;
 import fr.inria.corese.core.load.sesame.ParserLoaderSesame;
 import fr.inria.corese.core.load.sesame.ParserTripleHandlerSesame;
+import fr.inria.corese.core.producer.DataFilter;
+import fr.inria.corese.core.query.QueryProcess;
+import fr.inria.corese.sparql.api.IDatatype;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
+import fr.inria.corese.sparql.triple.parser.AccessRight;
 import java.io.ByteArrayInputStream;
 import java.io.FileFilter;
 import java.net.URLConnection;
+import java.util.ArrayList;
 import org.openrdf.rio.RDFFormat;
 import org.openrdf.rio.RDFHandlerException;
 import org.openrdf.rio.RDFParseException;
@@ -73,23 +78,29 @@ public class Load
     // false: load files into named graphs (name = URI of file) 
     private static boolean DEFAULT_GRAPH = false;
     private static int LIMIT_DEFAULT = Integer.MAX_VALUE;
+    private static final String RESOURCE = NSManager.RESOURCE;
     
     int maxFile = Integer.MAX_VALUE;
     Graph graph;
     Log log;
     RuleEngine engine;
     QueryEngine qengine;
+    private QueryProcess queryProcess;
     private SemanticWorkflow workflow;
     HashMap<String, String> loaded;
     LoadPlugin plugin;
-    Build build;
+    BuildImpl build;
     String source;
     boolean debug = !true,
             hasPlugin = false;
     private boolean renameBlankNode = true;
     private boolean defaultGraph = DEFAULT_GRAPH;
+    private boolean event = true;
     int nb = 0;
     private int limit = LIMIT_DEFAULT;
+    private AccessRight accessRight;
+    ArrayList<String> exclude;
+
     
     /**
      * true means load in default graph when no named graph is given
@@ -99,10 +110,13 @@ public class Load
     }
 
     Load(Graph g) {
+        this();
         set(g);
     }
 
     public Load() {
+        exclude = new ArrayList<>();
+        setAccessRight(new AccessRight());
     }
 
     public static Load create(Graph g) {
@@ -128,16 +142,16 @@ public class Load
     
     public void setLimit(int max) {
         limit = max;
-        if (build != null) {
-            build.setLimit(limit);
-        }
+//        if (build != null) {
+//            build.setLimit(limit);
+//        }
     }
 
     void set(Graph g) {
         graph = g;
         log = g.getLog();
         loaded = new HashMap<String, String>();
-        build = BuildImpl.create(graph);
+        //build = BuildImpl.create(graph, this);
     }
 
     public void reset() {
@@ -145,7 +159,12 @@ public class Load
     }
 
     public void exclude(String ns) {
-        build.exclude(ns);
+        //build.exclude(ns);
+        getExclude().add(ns);
+    }
+    
+    ArrayList<String> getExclude() {
+        return exclude;
     }
 
     public void setEngine(RuleEngine eng) {
@@ -168,7 +187,7 @@ public class Load
         }
     }
 
-    public void setBuild(Build b) {
+    public void setBuild(BuildImpl b) {
         if (b != null) {
             build = b;
         }
@@ -489,7 +508,16 @@ public class Load
         InputStream stream = null;
 
         try {
-            if (isURL(path)) {
+            if (path.startsWith(RESOURCE)){
+                // specific URI mean local resource
+                String pname = "/" + NSManager.nsm().strip(path, RESOURCE);
+                stream = Load.class.getResourceAsStream(pname);
+                if (stream == null) {
+                    throw new IOException(path);
+                }
+                read = reader(stream);
+            }
+            else if (isURL(path)) {
                 URL url = new URL(path);
                 URLConnection c = url.openConnection();
                 if (requiredFormat != UNDEF_FORMAT) {
@@ -575,13 +603,30 @@ public class Load
 
     void synLoad(Reader stream, String path, String base, String name, int format) throws LoadException {
         try {
-            writeLock().lock();
+            lock();
             parse(stream, path, base, name, format);            
         } finally {
-            writeLock().unlock();
+            unlock();
         }
     }
     
+    
+    void lock() {
+        if (getQueryProcess() != null && getQueryProcess().isSynchronized()) {
+            // already locked
+        }
+        else {
+            writeLock().lock();
+        }
+    }
+    
+    void unlock() {
+        if (getQueryProcess() != null && getQueryProcess().isSynchronized()) {
+            // already locked
+        } else {
+            writeLock().unlock();
+        }
+    }
     
     public void parse(Reader stream, String path, String base, String name, int format)  throws LoadException {
         switch (format) {
@@ -644,9 +689,19 @@ public class Load
             name = plugin.statSource(name);
             base = plugin.statBase(base);
         }
-        String save = source;
+        String save = getSource();
         source = name;
+        build = BuildImpl.create(graph, this);
+        build.setLimit(limit);
+        build.exclude(getExclude());
         build.setSource(name);
+        build.setPath(path);
+        IDatatype dt = DatatypeMap.newResource(path);
+        boolean b = true;
+        if (isEvent()) {
+            b = getCreateQueryProcess().isSynchronized();
+        }
+        before(dt, b);
         build.start();
         ARP arp = new ARP();
         try {
@@ -664,17 +719,26 @@ public class Load
             throw LoadException.create(e, arp.getLocator(), path);
         } finally {
             build.finish();
+            after(dt, b);
             source = save;
         }
     }
 
     void loadTurtle(Reader stream, String path, String base, String name) throws LoadException {
 
-        Creator cr = CreateImpl.create(graph, this);
+        CreateImpl cr = CreateImpl.create(graph, this);
         cr.graph(Constant.create(name));
         cr.setRenameBlankNode(renameBlankNode);
         cr.setLimit(limit);
+        cr.exclude(getExclude());
         cr.start();
+        IDatatype dt = DatatypeMap.newResource(path);
+        boolean b = true; 
+        if (isEvent()) {
+            b = getCreateQueryProcess().isSynchronized();
+        }
+        before(dt, b);
+        cr.setPath(path);
         LoadTurtle ld = LoadTurtle.create(stream, cr, base);
         try {
             ld.load();
@@ -683,7 +747,20 @@ public class Load
         } catch (QuerySyntaxException e) {
             throw LoadException.create(e, path);
         } finally {
+            after(dt, b);
             cr.finish();
+        }
+    }
+    
+    void before(IDatatype dt, boolean b) {
+        if (isEvent()) {
+            getCreateQueryProcess().beforeLoad(dt, b);
+        }
+    }
+    
+    void after(IDatatype dt, boolean b) {
+        if (isEvent()) {
+            getCreateQueryProcess().afterLoad(dt, b);
         }
     }
 
@@ -778,15 +855,6 @@ public class Load
         load.parse(read);
     }
 
-//    boolean suffix(String path) {
-//        for (String suf : SUFFIX) {
-//            if (path.endsWith(suf)) {
-//                return true;
-//            }
-//        }
-//        return false;
-//    }
-
     @Override
     public void statement(AResource subj, AResource pred, ALiteral lit) {
         build.statement(subj, pred, lit);
@@ -807,11 +875,11 @@ public class Load
                 logger.info("Import: " + uri);
             }
 
-            Build save = build;
-            build = BuildImpl.create(graph);
-            build.setLimit(save.getLimit());
+            BuildImpl save = build;
+//            build = BuildImpl.create(graph, this);
+//            build.setLimit(save.getLimit());
             try {
-                parse(uri);
+                basicImport(uri);
             } catch (LoadException ex) {
                 logger.error(ex.getMessage());
             }
@@ -825,7 +893,16 @@ public class Load
             if (debug) {
                 logger.info("Import: " + uri);
             }
-            parse(uri);
+            basicImport(uri);
+        }
+    }
+    
+    void basicImport(String uri) throws LoadException {
+        switch (getFormat(uri)) {
+            case Loader.QUERY_FORMAT:
+                QueryProcess.create().parseQuery(uri);
+                break;
+            default: parse(uri);
         }
     }
 
@@ -852,7 +929,7 @@ public class Load
     public void setSource(String s) {
         if (s == null) {
             //cur = src;
-            build.setSource(source);
+            build.setSource(getSource());
             return;
         }
 
@@ -860,9 +937,6 @@ public class Load
             s = plugin.dynSource(s);
         }
         build.setSource(s);
-//		if (! cur.getLabel().equals(s)){
-//			cur = build.getGraph(s);
-//		}
     }
 
     @Override
@@ -1044,4 +1118,55 @@ public class Load
     public void setDefaultGraph(boolean defaultGraph) {
         this.defaultGraph = defaultGraph;
     }
+    
+    QueryProcess getCreateQueryProcess() {
+        if (getQueryProcess() == null) {
+            setQueryProcess(QueryProcess.create(graph));
+        }      
+        return getQueryProcess();
+    }
+    
+
+    /**
+     * @return the queryProcess
+     */
+    public QueryProcess getQueryProcess() {
+        return queryProcess;
+    }
+
+    /**
+     * @param queryProcess the queryProcess to set
+     */
+    public void setQueryProcess(QueryProcess queryProcess) {
+        this.queryProcess = queryProcess;
+    }
+
+    /**
+     * @return the event
+     */
+    public boolean isEvent() {
+        return event;
+    }
+
+    /**
+     * @param event the event to set
+     */
+    public void setEvent(boolean event) {
+        this.event = event;
+    }
+
+    /**
+     * @return the accessRight
+     */
+    public AccessRight getAccessRight() {
+        return accessRight;
+    }
+
+    /**
+     * @param accessRight the accessRight to set
+     */
+    public void setAccessRight(AccessRight accessRight) {
+        this.accessRight = accessRight;
+    }
+
 }

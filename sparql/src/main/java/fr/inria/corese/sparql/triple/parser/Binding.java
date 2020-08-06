@@ -41,6 +41,11 @@ public class Binding extends Exp {
     }
     
     @Override
+    public Binding getBind() {
+        return this;
+    }
+    
+    @Override
     public Expression getFilter(){
 	return exp;
     }
@@ -85,9 +90,13 @@ public class Binding extends Exp {
         return b;
     }
 
-    @Override
     void getVariables(List<Variable> list) {
         add(getVariable(), list);
+    }
+    
+    @Override
+    void getVariables(VariableScope sort, List<Variable> list) {
+        getVariables(list);
     }
 
 }

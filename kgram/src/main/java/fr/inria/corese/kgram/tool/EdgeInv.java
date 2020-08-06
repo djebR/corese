@@ -2,7 +2,8 @@ package fr.inria.corese.kgram.tool;
 
 import fr.inria.corese.kgram.api.core.Edge;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.api.core.Pointerable;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.TRIPLE;
 import fr.inria.corese.kgram.core.PointerObject;
 
 public class EdgeInv extends PointerObject implements Edge{
@@ -80,6 +81,11 @@ public class EdgeInv extends PointerObject implements Edge{
                 return edge.getNode(n);
         }
     }
+    
+    @Override
+    public void setNode(int i, Node n) {
+        
+    }
 
     @Override
     public void setIndex(int n) {
@@ -117,7 +123,7 @@ public class EdgeInv extends PointerObject implements Edge{
     }
 
     @Override
-    public int pointerType() {
-        return Pointerable.EDGE_POINTER;
+    public PointerType pointerType() {
+        return TRIPLE;
     }
 }

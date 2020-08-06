@@ -2,7 +2,7 @@
 <!--
 SPARQL Template Transformation
 Olivier Corby - Wimmics - Inria UNS CNRS I3S
-Sat Mar 30 00:03:40 CET 2019
+Fri Oct 11 09:39:41 CEST 2019
 -->
 <rdf:RDF  xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
   xmlns='http://ns.inria.fr/sparql-template/'>
@@ -11,109 +11,24 @@ Sat Mar 30 00:03:40 CET 2019
 <![CDATA[
 prefix sh: <http://www.w3.org/ns/shacl#> 
 
-template sh:disjoint (?shape, ?sh, ?vis, ?s, ?p, ?q, ?o){
+template sh:pattern (?shape, ?sh, ?vis, ?s, ?p, ?exp, ?o) {
   sh:safe(?shape, ?sh, ?suc)
 }
 where {
-
-  bind (sh:path(?shape, ?s, ?p) as ?l1)
-  bind (sh:path(?shape, ?s, ?q) as ?l2)
-  
-  values ?o { unnest(?l1) }  
-  bind (! xt:member(?o, ?l2) as ?suc) 
-  
-  bind (st:report(sh:disjoint, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:equals1 (?shape, ?sh, ?vis, ?s, ?p, ?q, ?o){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (sh:path(?shape, ?s, ?p) as ?l1)
-  bind (sh:path(?shape, ?s, ?q) as ?l2)
-  
-  values ?o { unnest(?l1) }  
-  bind (xt:member(?o, ?l2) as ?suc)
-  
-  bind (st:report(sh:equals, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:not (?shape, ?sh, ?vis, ?s, ?p, ?cst, ?o){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
+  graph ?shape {  
+    ?sh sh:pattern ?exp   
+    optional { ?sh sh:flags ?flag }
+  }
   values ?o { unnest(sh:path(?shape, ?s, ?p)) }
+  bind ( 
+    coalesce(
+        ! isBlank(?o) && 
+        if (bound (?flag), regex(?o, ?exp, ?flag), regex(?o, ?exp)), 
+        false) 
+  as ?suc )
 
-  bind (! sh:hasPath(?shape, ?cst, false, ?s, ?p, ?o) as ?suc)
-  
-  bind (st:report(sh:not, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
+  bind (st:report(sh:pattern, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
 }
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:equals2 (?shape, ?sh, ?vis, ?s, ?p, ?q, ?o){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (sh:path(?shape, ?s, ?p) as ?l1)
-  bind (sh:path(?shape, ?s, ?q) as ?l2)
-  
-  values ?o { unnest(?l2) }  
-  bind (xt:member(?o, ?l1) as ?suc)
-  
-  bind (st:report(sh:equals, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:xone (?shape, ?sh, ?vis, ?s, ?p, ?or, ?o) {
-    sh:safe(?shape, ?sh, ?suc)
-}
-where {
-  
-    values ?o { unnest(sh:path(?shape, ?s, ?p)) }
-    
-    bind (sh:xone(?or, ?s, ?p, ?o, ?shape) as ?count)
-	bind (! bound(?count) AS ?failure) .
-	bind ( IF (?failure, false, ?count)  as ?suc)
-
-    bind (st:report(sh:xone, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
-
 
 ]]>
 </body>
@@ -176,31 +91,12 @@ function sh:display(?shape, ?p) {
 }
 
 function sh:variable(?uri) {
-    concat("?", st:strip(?uri))
+    concat("?", xt:strip(?uri))
 }
 
 # pseudo declare variables in case they are not in a triple of query ?q
 function sh:values(?oper){
     concat("values (?this ", ?oper, ") { (UNDEF UNDEF) }")
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:equals (?shape, ?sh, ?vis, ?s, ?p, ?q, ?o){
-  if (bound(?o), 
-    st:call-template(?oper, ?shape, ?sh, ?vis, ?s, ?p, ?q, ?o),
-    st:call-template(?oper, ?shape, ?sh, ?vis, ?s, ?p, ?q))
-}
-where {
-
-  values ?oper {sh:equals1 sh:equals2}
-
 }
 ]]>
 </body>
@@ -224,6 +120,51 @@ where {
   
 }
  
+]]>
+</body>
+</rule>
+
+<rule>
+<body>
+<![CDATA[
+#
+# SPARQL Based Constraint
+# Evaluate SPARQL query with pre-bind of variable $this with focus nodes
+# SPARQL query returns solutions that fail the Constraint
+#
+prefix sh: <http://www.w3.org/ns/shacl#> 
+template  sh:sparql (?shape, ?sh, ?vis, ?s, ?p, ?cst, ?o) {
+   sh:safe(?shape, ?sh, ?suc)
+}
+where {
+    graph ?shape {  
+        ?sh sh:sparql ?cst 
+        ?cst sh:select ?q
+        filter not exists { ?cst sh:deactivated true }
+        optional { ?cst sh:message ?mes }
+        
+        # collect prefix definitions
+        # TBD: do it once and record it
+        {
+            select ?cst 
+              (group_concat(concat("prefix ", ?pr, ": <", str(?ns), ">") ;  separator="\n") 
+              as ?define) 
+            where {
+                ?cst sh:prefixes/owl:imports*/sh:declare [ sh:prefix ?pr ; sh:namespace ?ns ] 
+            }
+            group by ?cst
+        }
+    }
+    
+    bind (sh:path(?shape, ?s, ?p) as ?list)
+    
+    values ?o { unnest(?list) } 
+    
+    bind (sh:mysparql(concat(?define, ?q), ?sh, ?cst, ?shape, ?s, ?o, ?vis, coalesce(?mes, st:null), bound(?mes)) as ?suc)
+    
+}
+
+
 ]]>
 </body>
 </rule>
@@ -255,24 +196,87 @@ where {
 <![CDATA[
 prefix sh: <http://www.w3.org/ns/shacl#> 
 
+template sh:uniqueLang (?shape, ?sh, ?vis, ?s, ?p, ?l, ?o){
+    let (?suc = false, ?b = st:report(sh:uniqueLang, ?sh, ?shape, ?s, ?p, ?lang, ?suc, ?vis)){
+        sh:safe(?shape, ?sh, ?suc)
+    } 
+}
+where {
+
+    select ?shape ?s ?p ?lang (count(?val) as ?c)  
+    where {
+        values ?val { unnest(sh:path(?shape, ?s, ?p)) }
+        bind (lang(?val) as ?lang)
+        filter (bound(?lang) && ?lang != "")
+    } 
+    group by ?lang
+    having (?c > 1)
+    
+}
+
+
+]]>
+</body>
+</rule>
+
+<rule>
+<body>
+<![CDATA[
+prefix sh: <http://www.w3.org/ns/shacl#> 
+
+template sh:lessThan(?shape, ?sh, ?vis, ?s, ?p, ?q, ?o){
+  sh:safe(?shape, ?sh, ?suc)
+}
+where {
+
+  ?s ?p ?o ; ?q ?v
+  
+  bind (coalesce(?o < ?v, false) as ?suc)
+    
+  bind (st:report(sh:lessThan, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
+  
+}
+ 
+]]>
+</body>
+</rule>
+
+<rule>
+<body>
+<![CDATA[
+prefix sh:  <http://www.w3.org/ns/shacl#> 
+prefix msh: <http://ns.inria.fr/shacl/>
+
+@import <function/datashape/main.rq>   <function/datashape/path.rq> 
+
 template st:profile {}
 where {}
 
-function st:aggregate(?out) {
-  st:agg_and(?out)
+function st:aggregate(out) {
+  st:agg_and(out)
 }
 
-function st:default(?term){
+function st:default(term){
     true
 }
 
-function st:defaultNamed(?term){
+function st:defaultNamed(term){
     true
 }
 
-function st:optimize(?shape, ?sh){
+function st:optimize(shape, sh){
     true
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -360,253 +364,6 @@ function sh:qualified(?shape, ?qsh, ?s, ?p){
 <![CDATA[
 prefix sh: <http://www.w3.org/ns/shacl#> 
 
-template sh:pattern (?shape, ?sh, ?vis, ?s, ?p, ?exp, ?o) {
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-  graph ?shape {  
-    ?sh sh:pattern ?exp   
-    optional { ?sh sh:flags ?flag }
-  }
-  values ?o { unnest(sh:path(?shape, ?s, ?p)) }
-  bind ( 
-    coalesce(
-        ! isBlank(?o) && 
-        if (bound (?flag), regex(?o, ?exp, ?flag), regex(?o, ?exp)), 
-        false) 
-  as ?suc )
-
-  bind (st:report(sh:pattern, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-}
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:or (?shape, ?sh, ?vis, ?s, ?p, ?or, ?o) {
-    sh:safe(?shape, ?sh, ?suc)
-}
-where {
-  
-    values ?o { unnest(sh:path(?shape, ?s, ?p)) }
-    
-    bind (sh:or(?or, ?s, ?p, ?o, ?shape) as ?count)
-	bind (! bound(?count) AS ?failure) .
-	bind ( IF (?failure, false, ?count)  as ?suc)
-
-    bind (st:report(sh:or, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
-
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:maxCount (?shape, ?sh, ?vis, ?s, ?p, ?m, ?o){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (xt:size(sh:path(?shape, ?s, ?p)) as ?val) 
-  bind (?val <= ?m    as ?suc) 
-  
-  bind (st:report(sh:maxCount, ?sh, ?shape, ?s, ?p, ?val, ?suc, ?vis) as ?b)
-}
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-#
-# SPARQL Based Constraint
-# Evaluate SPARQL query with pre-bind of variable $this with focus nodes
-# SPARQL query returns solutions that fail the Constraint
-#
-prefix sh: <http://www.w3.org/ns/shacl#> 
-template  sh:sparql (?shape, ?sh, ?vis, ?s, ?p, ?cst, ?o) {
-   sh:safe(?shape, ?sh, ?suc)
-}
-where {
-    graph ?shape {  
-        ?sh sh:sparql ?cst 
-        ?cst sh:select ?q
-        filter not exists { ?cst sh:deactivated true }
-        
-        # collect prefix definitions
-        # TBD: do it once and record it
-        {
-            select ?cst 
-              (group_concat(concat("prefix ", ?pr, ": <", str(?ns), ">") ;  separator="\n") 
-              as ?define) 
-            where {
-                ?cst sh:prefixes ?ns
-                [] sh:declare [ sh:prefix ?pr ; sh:namespace ?ns ] 
-            }
-            group by ?cst
-        }
-    }
-    
-    bind (sh:path(?shape, ?s, ?p) as ?list)
-    
-    values ?o { unnest(?list) }  
-    
-    values ($this ?path ?value) { unnest(kg:sparql(concat(?define, ?q), "$this", ?o)) }
-
-    # SPARQL query returns solutions that fail
-    bind (false as ?suc)
-    
-    bind (st:report(sh:sparql, ?cst, ?shape, ?o, ?path, ?value, ?suc, ?vis) as ?b)
-    
-}
-
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:uniqueLang (?shape, ?sh, ?vis, ?s, ?p, ?l, ?o){
-    let (?suc = false, ?b = st:report(sh:uniqueLang, ?sh, ?shape, ?s, ?p, ?lang, ?suc, ?vis)){
-        sh:safe(?shape, ?sh, ?suc)
-    } 
-}
-where {
-
-    select ?shape ?s ?p ?lang (count(?val) as ?c)  
-    where {
-        values ?val { unnest(sh:path(?shape, ?s, ?p)) }
-        bind (lang(?val) as ?lang)
-        filter (bound(?lang) && ?lang != "")
-    } 
-    group by ?lang
-    having (?c > 1)
-    
-}
-
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:and (?shape, ?sh, ?vis, ?s, ?p, ?and, ?o) {
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
- 
-    values ?o { unnest(sh:path(?shape, ?s, ?p)) }
-
-    bind (sh:and(?and, ?s, ?p, ?o, ?shape) as ?count)
-	bind (! bound(?count) AS ?failure) .
-	bind ( IF (?failure, false, ?count)  as ?suc)
-
-    bind (st:report(sh:and, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
-
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:lessThan(?shape, ?sh, ?vis, ?s, ?p, ?q, ?o){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  ?s ?p ?o ; ?q ?v
-  
-  bind (coalesce(?o < ?v, false) as ?suc)
-    
-  bind (st:report(sh:lessThan, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis) as ?b)
-  
-}
- 
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:minCount (?shape, ?sh, ?vis, ?s, ?p, ?m, ?o){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (xt:size(sh:path(?shape, ?s, ?p)) as ?val) 
-  bind (?val >= ?m as ?suc) 
-
-  bind (st:report(sh:minCount, ?sh, ?shape, ?s, ?p, ?val, ?suc, ?vis) as ?b)
-}
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template (?shape, ?sh, ?vis, ?ls, ?p, ?o) {
-  if (bound(?o), 
-    st:call-template(?oper, ?shape, ?sh, ?vis, ?s, ?p, ?b, ?o),
-    st:call-template(?oper, ?shape, ?sh, ?vis, ?s, ?p, ?b))
-}
-where {
-  graph ?shape {  
-    values ?oper { 
-      sh:equals sh:maxCount sh:minCount sh:pattern sh:uniqueLang sh:hasValue sh:lessThanOrEquals sh:lessThan sh:disjoint 
-      sh:and sh:or sh:xone sh:not 
-      sh:qualifiedValueShape sh:sparql
-    }
-    ?sh ?oper ?b  
-    filter if (?oper = sh:uniqueLang, sameTerm(?b, true), true)
-
-  }
-  
-  values ?s { unnest(?ls) }
-
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
 template (?shape, ?sh, ?vis, ?ls, ?p, ?o) {
   if (bound(?o), 
     st:call-template(sh:sparqlvalidp, ?shape, ?sh, ?vis, ?s, ?p, ?oper, ?value, ?o),
@@ -618,6 +375,7 @@ where {
     filter (! sh:isPredicate(?oper))
   }
   
+  values ?o { UNDEF }
   values ?s { unnest(?ls) }
 
 }
@@ -648,28 +406,36 @@ function sh:isPredicate(?p) {
 prefix sh: <http://www.w3.org/ns/shacl#> 
 
 template (?shape, ?sh, ?vis, ?ls, ?p, ?value) {
-  sh:safe(?shape, ?sh, ?suc)
+  sh:generic(?shape, ?sh, ?vis, ?ls, ?p, if (?bound, ?value, st:null), ?bound)
 }
 where {
-    graph ?shape {  
-        values ?q { 
-            sh:minLength sh:maxLength sh:datatype sh:minInclusive sh:minExclusive sh:maxInclusive sh:maxExclusive 
-            sh:nodeKind sh:class 
-            sh:in sh:languageIn sh:node sh:property
-        }
-        ?sh ?q ?m    
-    }
-
-  values ?s { unnest(?ls) }
-
-  values ?o { unnest(if (bound(?value), ?value, sh:path(?shape, ?s, ?p))) }
-
-  bind (coalesce(sh:functioncall(?q, ?shape, ?o, ?m), false) as ?suc )
-  
-  bind (
-    if (?q in (sh:property), true, st:report(?q, ?sh, ?shape, ?s, ?p, ?o, ?suc, ?vis))
-    as ?b)
+    bind (bound(?value) as ?bound)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ]]>
 </body>
 </rule>

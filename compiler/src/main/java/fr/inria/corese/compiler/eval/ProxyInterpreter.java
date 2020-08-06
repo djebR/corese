@@ -21,14 +21,11 @@ import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprLabel;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Evaluator;
 import fr.inria.corese.kgram.api.query.Producer;
-import fr.inria.corese.kgram.core.Eval;
 import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Memory;
-import fr.inria.corese.kgram.core.PointerObject;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.kgram.event.EvalListener;
 import fr.inria.corese.kgram.event.Event;
@@ -42,10 +39,13 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.kgram.api.core.PointerType;
+import fr.inria.corese.kgram.core.Eval;
 
 /**
  * Implements evaluator of operators & functions of filter language with
  * IDatatype values
+ * This code is now overloaded by fr.inria.corese.sparql.triple
  *
  * @author Olivier Corby, Edelweiss, INRIA 2010
  *
@@ -66,6 +66,7 @@ public class ProxyInterpreter implements Proxy,  ExprType {
     static final String ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     public static int count = 0;
     ProxyPlugin plugin;
+    // implemented by fr.inria.corese.core.query.PluginImpl 
     ProxyInterpreter castPlugin;
     Custom custom;
     SQLFun sql;
@@ -163,34 +164,34 @@ public class ProxyInterpreter implements Proxy,  ExprType {
          return new IDatatype[n];
      }
      
-     String label(int ope){
-         switch (ope){
-             case ExprType.EQ:  return ExprLabel.EQUAL;
-             case ExprType.NEQ: return ExprLabel.DIFF;
-             case ExprType.LT:  return ExprLabel.LESS;
-             case ExprType.LE:  return ExprLabel.LESS_EQUAL;
-             case ExprType.GT:  return ExprLabel.GREATER;
-             case ExprType.GE:  return ExprLabel.GREATER_EQUAL;
-             // Proxy implements IN with equal, lets use ext:equal as well
-             case ExprType.IN:  return ExprLabel.EQUAL;
-                 
-             case ExprType.PLUS:    return ExprLabel.PLUS;
-             case ExprType.MINUS:   return ExprLabel.MINUS;
-             case ExprType.MULT:    return ExprLabel.MULT;
-             case ExprType.DIV:     return ExprLabel.DIV;
-         }
-         return null;
-     }
+//     String label(int ope){
+//         switch (ope){
+//             case ExprType.EQ:  return ExprLabel.EQUAL;
+//             case ExprType.NEQ: return ExprLabel.DIFF;
+//             case ExprType.LT:  return ExprLabel.LESS;
+//             case ExprType.LE:  return ExprLabel.LESS_EQUAL;
+//             case ExprType.GT:  return ExprLabel.GREATER;
+//             case ExprType.GE:  return ExprLabel.GREATER_EQUAL;
+//             // Proxy implements IN with equal, lets use ext:equal as well
+//             case ExprType.IN:  return ExprLabel.EQUAL;
+//                 
+//             case ExprType.PLUS:    return ExprLabel.PLUS;
+//             case ExprType.MINUS:   return ExprLabel.MINUS;
+//             case ExprType.MULT:    return ExprLabel.MULT;
+//             case ExprType.DIV:     return ExprLabel.DIV;
+//         }
+//         return null;
+//     }
      
      /**
       * exp:      a = b
       * datatype: http://example.org/datatype
       * result:   http://example.org/datatype#equal
       */
-     String label(Expr exp, String datatype){
-         
-         return datatype.concat(ExprLabel.SEPARATOR + label(exp.oper()));
-     }
+//     String label(Expr exp, String datatype){
+//         
+//         return datatype.concat(ExprLabel.SEPARATOR + label(exp.oper()));
+//     }
      
      IDatatype[] array(IDatatype o1, IDatatype o2){
           IDatatype[] args = new IDatatype[2];
@@ -206,27 +207,27 @@ public class ProxyInterpreter implements Proxy,  ExprType {
      }
      
      // TODO: check ExprLabel.COMPARE
-    @Override
-    @Deprecated
-     public int compare(Environment env, Producer p, Node o1, Node o2) {
-        IDatatype dt1 = (IDatatype) o1.getValue();
-        IDatatype dt2 = (IDatatype) o2.getValue();
-        if (dt1.getCode() == IDatatype.UNDEF && dt2.getCode() == IDatatype.UNDEF){
-            if (dt1.getDatatypeURI().equals(dt2.getDatatypeURI())){   
-                // get an extension function that implements the operator for
-                // the extended datatype
-                Expr exp = eval.getDefine(env, ExprLabel.COMPARE, 2);
-                if (exp != null){
-                     IDatatype res = eval.call(exp.getFunction(), env, p, array(dt1, dt2), exp);
-                     if (res == null){
-                         return 0;
-                     }
-                     return res.intValue();
-                }                
-            }
-        }
-        return dt1.compareTo(dt2);
-     }
+//    @Override
+//    @Deprecated
+//     public int compare(Environment env, Producer p, Node o1, Node o2) {
+//        IDatatype dt1 = (IDatatype) o1.getValue();
+//        IDatatype dt2 = (IDatatype) o2.getValue();
+//        if (dt1.getCode() == IDatatype.UNDEF && dt2.getCode() == IDatatype.UNDEF){
+//            if (dt1.getDatatypeURI().equals(dt2.getDatatypeURI())){   
+//                // get an extension function that implements the operator for
+//                // the extended datatype
+//                Expr exp = eval.getDefine(env, ExprLabel.COMPARE, 2);
+//                if (exp != null){
+//                     IDatatype res = eval.call(exp.getFunction(), env, p, array(dt1, dt2), exp);
+//                     if (res == null){
+//                         return 0;
+//                     }
+//                     return res.intValue();
+//                }                
+//            }
+//        }
+//        return dt1.compareTo(dt2);
+//     }
      
 
     @Override
@@ -235,17 +236,17 @@ public class ProxyInterpreter implements Proxy,  ExprType {
     }
     
     public IDatatype term(Expr exp, Environment env, Producer p, IDatatype dt1, IDatatype dt2) {       
-        if (dt1.getCode() == IDatatype.UNDEF && dt2.getCode() == IDatatype.UNDEF){
-            String d1 = dt1.getDatatypeURI();
-            if (d1.equals(dt2.getDatatypeURI())){   
-                // get an extension function that implements the operator for
-                // the extended datatype
-                Expr ee = eval.getDefine(env, label(exp, d1), exp.arity()); 
-                if (ee != null){
-                   return   eval.call(exp, env, p, array(dt1, dt2), ee);
-                }                
-            }
-        }
+//        if (dt1.getCode() == IDatatype.UNDEF && dt2.getCode() == IDatatype.UNDEF){
+//            String d1 = dt1.getDatatypeURI();
+//            if (d1.equals(dt2.getDatatypeURI())){   
+//                // get an extension function that implements the operator for
+//                // the extended datatype
+//                Expr ee = eval.getDefine(env, label(exp, d1), exp.arity()); 
+//                if (ee != null){
+//                   return   eval.call(exp, env, p, array(dt1, dt2), ee);
+//                }                
+//            }
+//        }
        
         boolean b = true;
 
@@ -1972,7 +1973,7 @@ public class ProxyInterpreter implements Proxy,  ExprType {
      * return value of variable in first Mapping
      */
     public IDatatype gget(IDatatype dtmap, IDatatype dtvar){
-        if (! dtmap.isPointer() || dtmap.pointerType() != PointerObject.MAPPINGS_POINTER){
+        if (! dtmap.isPointer() || dtmap.pointerType() != PointerType.MAPPINGS){
             return null;
         }
         Mappings map = dtmap.getPointerObject().getMappings();
@@ -2012,7 +2013,7 @@ public class ProxyInterpreter implements Proxy,  ExprType {
      
     
     IDatatype reject(Environment env, IDatatype dtm){
-        if (dtm.pointerType() == Pointerable.MAPPING_POINTER){
+        if (dtm.pointerType() == PointerType.MAPPING){
             env.getMappings().reject(dtm.getPointerObject().getMapping()); 
         }
         return TRUE;
@@ -2047,7 +2048,11 @@ public class ProxyInterpreter implements Proxy,  ExprType {
     public Environment getEnvironment() {
         return environment;
     }
-
+    
+    public Eval getEval() {
+        return getEnvironment().getEval();
+    }
+    
     /**
      * @param environment the environment to set
      */

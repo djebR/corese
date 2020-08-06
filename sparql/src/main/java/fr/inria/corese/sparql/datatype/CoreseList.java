@@ -11,7 +11,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 
-public class CoreseList extends CoreseUndefLiteral implements IDatatypeList {
+public class CoreseList extends CoreseExtension implements IDatatypeList {
 
     private List<IDatatype> list;
     private static int count = 0;
@@ -77,11 +77,6 @@ public class CoreseList extends CoreseUndefLiteral implements IDatatypeList {
         return sb.toString();
     }
 
-    @Override
-    public IDatatype display() {
-        return DatatypeMap.createUndef(getContent(), getDatatypeURI());
-    }
-
     void getContent(StringBuffer sb) {
         sb.append("(");
         for (IDatatype dt : list) {
@@ -110,7 +105,7 @@ public class CoreseList extends CoreseUndefLiteral implements IDatatypeList {
         }
         return super.equalsWE(dt);
     }
-    
+        
     @Override
     public int compareTo(IDatatype dt) {
         if (dt.isList()) {
@@ -288,6 +283,25 @@ public class CoreseList extends CoreseUndefLiteral implements IDatatypeList {
             return null;
         }
         ArrayList<IDatatype> res = new ArrayList();
+        CoreseList list = new CoreseList(res);
+        for (IDatatype dt : getValues()) {
+            if (!list.contains(dt)) {
+                list.add(dt);
+            }
+        }
+        for (IDatatype dt : dtlist.getValues()) {
+            if (!list.contains(dt)) {
+                list.add(dt);
+            }
+        }
+        return list;
+    }
+    
+    public IDatatype merge2(IDatatype dtlist) {
+        if (!dtlist.isList()) {
+            return null;
+        }
+        ArrayList<IDatatype> res = new ArrayList();
         for (IDatatype dt : list) {
             if (!res.contains(dt)) {
                 res.add(dt);
@@ -299,6 +313,16 @@ public class CoreseList extends CoreseUndefLiteral implements IDatatypeList {
             }
         }
         return new CoreseList(res);
+    }
+   
+    @Override
+    public boolean contains(IDatatype dt) {
+        for (IDatatype elem : getValues()) {
+            if (dt.sameTerm(elem)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // this is a list, possibly list of lists
@@ -385,5 +409,13 @@ public class CoreseList extends CoreseUndefLiteral implements IDatatypeList {
     @Override
     public IDatatype member(IDatatype elem) {
         return list.contains(elem) ? TRUE : FALSE;
+    }
+    
+    @Override
+    public int mapCompareTo(IDatatype dt) {
+        if (dt.isList()) {
+           return getLabel().compareTo(dt.getLabel());
+        }
+        return super.compareTo(dt);
     }
 }

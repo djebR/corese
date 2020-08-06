@@ -1,24 +1,22 @@
 #
-# Data Shape Validator
+# SHACL Interpreter
 # http://w3c.github.io/data-shapes/shacl/
+# Functions are defined in resources/function/datashape, see target.rq and main.rq
 #
 # main: shapes with targets
 # core: shape constraints (property, path, constraint, and, or, not, closed)
-# property:   property predicate constraint
 # path:       property path constraint
 # constraint: node constraint
 #
-# Olivier Corby - Inria I3S - 2016
+# Olivier Corby - Wimmics Inria I3S - 2016-2019
 #
 prefix sh: <http://www.w3.org/ns/shacl#> 
 
 template st:start(?shapeGraph) {
-    ?suc
+    ?g
 }
 where {
-  bind (sh:starter() as ?st)
   bind (coalesce(?shapeGraph, st:get(st:shape), st:shape) as ?shape)
-  bind (xt:focus(?shape, sh:sibling()) as ?sib)
-  bind (sh:target(?shape) as ?suc) 
-  bind (sh:success(?suc) as ?b)
+  bind (coalesce(st:get(st:function), sh:shacl) as ?fun)
+  bind (funcall(?fun, ?shape) as ?g)
 }

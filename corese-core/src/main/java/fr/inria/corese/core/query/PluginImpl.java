@@ -27,7 +27,6 @@ import fr.inria.corese.compiler.eval.QuerySolver;
 import fr.inria.corese.kgram.api.core.ExpType;
 import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
-import fr.inria.corese.kgram.api.core.Loopable;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.query.Environment;
@@ -53,7 +52,9 @@ import fr.inria.corese.core.rule.RuleEngine;
 import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.load.LoadFormat;
 import fr.inria.corese.core.load.QueryLoad;
+import fr.inria.corese.core.print.RDFFormat;
 import fr.inria.corese.core.print.ResultFormat;
+import fr.inria.corese.core.query.update.GraphManager;
 import fr.inria.corese.core.transform.TemplateVisitor;
 import fr.inria.corese.core.transform.Transformer;
 import fr.inria.corese.core.util.GraphListen;
@@ -67,14 +68,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
 import fr.inria.corese.kgram.api.core.Edge;
-import static fr.inria.corese.kgram.api.core.Pointerable.GRAPH_POINTER;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.GRAPH;
+import static fr.inria.corese.kgram.api.core.PointerType.MAPPINGS;
+import static fr.inria.corese.kgram.api.core.PointerType.TRIPLE;
+import fr.inria.corese.sparql.triple.function.term.Binding;
+import fr.inria.corese.sparql.triple.parser.ASTExtension;
 import fr.inria.corese.sparql.triple.parser.Access;
 import java.util.logging.Level;
 
 
 /**
- * Plugin for filter evaluator Compute semantic similarity of classes and
- * solutions for KGRAPH
+ * Plugin for filter evaluator 
+ * Compute semantic similarity of classes and solutions 
+ * Implement graph specific function for LDScript
  *
  * @author Olivier Corby, Edelweiss, INRIA 2011
  *
@@ -97,11 +104,21 @@ public class PluginImpl
     public static final String SILENT   = EXT+"silent";
     public static final String DEBUG    = EXT+"debug";
     public static final String EVENT    = EXT+"event";
+    public static final String VERBOSE  = EXT+"verbose";
     public static final String METHOD   = EXT+"method";
     public static final String EVENT_LOW= EXT+"eventLow";
     public static final String SHOW     = EXT+"show";
     public static final String HIDE     = EXT+"hide";
     public static final String NODE_MGR = EXT+"nodeManager";
+    public static final String RDF_STAR = EXT+"rdfstar";
+    public static final String TYPECHECK= EXT+"typecheck";
+    public static final String RDF_TYPECHECK= EXT+"rdftypecheck";
+    public static final String VARIABLE = EXT+"variable";
+    public static final String URI      = EXT+"uri";
+    public static final String TRANSFORMER = EXT+"transformer";
+    public static final String BINDING  = EXT+"binding";
+    public static final String DYNAMIC_CAPTURE  = EXT+"dynamic";
+    
     private static final String QM      = "?";
     
     String PPRINTER = DEF_PPRINTER;
@@ -185,7 +202,7 @@ public class PluginImpl
     void setMethodHandler(Producer p, Environment env){
         Extension ext = env.getQuery().getActualExtension();
         ASTQuery ast  = (ASTQuery) env.getQuery().getAST();
-        if (ext != null && ext.isMethod() && ast.hasMetadata(Metadata.TEST)){
+        if (ext != null && ext.isMethod() && ast.hasMetadata(Metadata.METHOD)){
             ClassHierarchy ch = new ClassHierarchy(getGraph(p));
             if (env.getQuery().getGlobalQuery().isDebug()){
                 ch.setDebug(true);
@@ -224,7 +241,7 @@ public class PluginImpl
             case DESCRIBE:
                 return ext.describe(p, exp, env); 
                 
-             case XT_EDGE:
+             case XT_EDGES:
                  return edge(env, p, null, null, null);
                  
              case XT_EXISTS:
@@ -331,7 +348,7 @@ public class PluginImpl
              case XT_INDEX:
                  return access(exp, env, p, dt);
                  
-             case XT_EDGE:
+             case XT_EDGES:
                  return edge(env, p, null, dt, null);
                  
              case XT_EXISTS:
@@ -394,7 +411,7 @@ public class PluginImpl
              case XT_VALUE:
                  return value(p, dt1, dt2, DatatypeMap.ONE);
                  
-              case XT_EDGE:
+              case XT_EDGES:
                  return edge(env, p, dt1, dt2, null); 
                  
               case XT_EXISTS:
@@ -434,7 +451,7 @@ public class PluginImpl
             case APPROXIMATE:
                 return pas.eval(exp, env, p, param);
                                
-            case XT_EDGE:
+            case XT_EDGES:
                 return edge(env, p, param[0], param[1], param[2]);
                 
             case XT_EXISTS:
@@ -477,14 +494,14 @@ public class PluginImpl
         Graph g;
         
         switch (dt.pointerType()) {
-            case Pointerable.MAPPINGS_POINTER:
+            case MAPPINGS:
                 g = graph(dt.getPointerObject().getMappings());
                 if (g == null) {
                     return null;
                 }
                 return DatatypeMap.createObject(g);
                 
-            case Pointerable.GRAPH_POINTER:
+            case GRAPH:
                 return dt; 
         }
         
@@ -648,8 +665,8 @@ public class PluginImpl
     
     @Override
     public IDatatype load(IDatatype dt, IDatatype graph, IDatatype expectedFormat, IDatatype requiredFormat) {
-         Graph g;
-         if (graph == null || graph.pointerType() != Pointerable.GRAPH_POINTER) {
+        Graph g;
+         if (graph == null || graph.pointerType() != GRAPH) {
              g = Graph.create();
          }
          else {
@@ -662,14 +679,14 @@ public class PluginImpl
                     ld.parse(dt.getLabel(), getFormat(expectedFormat));
                  }
                  else {
-                     System.out.println("PI: " + requiredFormat + " " + getFormat(requiredFormat));
+                    //System.out.println("PI: " + requiredFormat + " " + getFormat(requiredFormat));
                     ld.parseWithFormat(dt.getLabel(), getFormat(requiredFormat));
                  }
              }
          } catch (LoadException ex) {
-             logger.error("Load error: " + dt);
+             logger.error("Load error: " + dt + " "+ ((requiredFormat!=null)?requiredFormat:""));
              logger.error(ex.getMessage());
-             ex.printStackTrace();
+             //ex.printStackTrace();
          }
         IDatatype res = DatatypeMap.createObject(g);
         return res;
@@ -686,6 +703,14 @@ public class PluginImpl
             ql.write(dtfile.getLabel(), dt.getLabel());
         }
         return dt;
+    }
+    
+    @Override
+    public IDatatype syntax(IDatatype syntax, IDatatype graph, IDatatype node) {
+        Graph g = (Graph) graph.getPointerObject();
+        ResultFormat ft = ResultFormat.create(g, syntax.getLabel()); 
+        String str = (node == null)?ft.toString():ft.toString(node);
+        return DatatypeMap.newInstance(str);
     }
    
     static boolean readWriteAuthorized() {
@@ -777,14 +802,19 @@ public class PluginImpl
     @Override
     public IDatatype entailment(Environment env, Producer p, IDatatype dt) { 
         Graph g = getGraph(p);
-        if (dt != null && dt.isPointer() && dt.getPointerObject().pointerType() == Pointerable.GRAPH_POINTER){
+        if (dt != null && dt.isPointer() && dt.getPointerObject().pointerType() == GRAPH){
             g = (Graph) dt.getPointerObject().getTripleStore();
         }
-        if (g.getLock().getReadLockCount() > 0 || g.getLock().isWriteLocked()) {
+        boolean b = env.getEval().getSPARQLEngine().isSynchronized();
+        if (g.isReadLocked() && ! b) {
+            // use case where isSynchronised():
+            // @afterUpdate, QueryProcess isSynchronised(), we can perform entailment
             logger.info("Graph locked, perform entailment on copy");
             g = g.copy();
         }
         RuleEngine re = RuleEngine.create(g);
+        re.setSynchronized(b);
+        //re.setVisitor(env.getEval().getVisitor());
         re.setProfile(RuleEngine.OWL_RL);
         re.process();
         return DatatypeMap.createObject(g);
@@ -822,12 +852,112 @@ public class PluginImpl
     }
     
     @Override
+    public IDatatype insert(Environment env, Producer p, IDatatype... param) {
+        Graph g = getGraph(p);
+        IDatatype first = param[0];
+        Edge e;
+        if (param.length==3) {
+            e = g.add(first, param[1], param[2]);
+        }
+        else if (first.isPointer() && first.pointerType() == PointerType.GRAPH){
+            Graph gg = (Graph) first.getPointerObject();
+            e = gg.add(param[1], param[2], param[3]);
+        } 
+        else {
+            e = g.add(first, param[1], param[2], param[3]);
+        }
+        return (e==null)?FALSE:TRUE;
+    }
+    
+    @Override
+    public IDatatype delete(Environment env, Producer p, IDatatype... param) {
+        Graph g = getGraph(p);
+        List<Edge> le;
+        if (param.length == 3) {
+            le = g.delete(null, param[0], param[1], param[2]);
+        } else {
+            le = g.delete(param[0], param[1], param[2], param[3]);
+        }
+        return (le == null) ? FALSE : TRUE;
+    }
+    
+    @Override
+    public IDatatype value(Environment env, Producer p, IDatatype graph, IDatatype node, IDatatype predicate, int n) {
+        Graph g = (Graph) ((graph == null) ?  p.getGraph() :  graph.getPointerObject());
+        Node val = g.value(node, predicate, n);
+        if (val == null) {
+            return null;
+        }
+        return (IDatatype) val.getDatatypeValue();
+    }
+    
+    @Override
     public IDatatype exists(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj) {
-        for (Edge ent : new DataProducer(getGraph(p)).iterate(subj, pred, obj)) {
+        DataProducer dp = new DataProducer(getGraph(p));
+        if (env.getGraphNode() != null) {
+            dp.from(env.getGraphNode());
+        }
+        for (Edge ent : dp.iterate(subj, pred, obj)) {
             return (ent == null) ? FALSE :TRUE;
         }
         return FALSE;
     }
+    
+    @Override
+    public IDatatype mindegree(Environment env, Producer p, IDatatype node, IDatatype pred, IDatatype index, IDatatype m) {
+        int min = m.intValue();
+        if (index == null) {
+            // input + output edges
+            int d = degree(env, p, node, pred, 0, min) + degree(env, p, node, pred, 1, min);
+            return DatatypeMap.newInstance(d>=min);
+        }
+        int d = degree(env, p, node, pred, index.intValue(), min);
+        return DatatypeMap.newInstance(d>=min);
+    }
+    
+    @Override
+    public IDatatype degree(Environment env, Producer p, IDatatype node, IDatatype pred, IDatatype index) { 
+        int min = Integer.MAX_VALUE;
+        if (index == null) {
+            // input + output edges
+            int d = degree(env, p, node, pred, 0, min) + degree(env, p, node, pred, 1, min);
+            return DatatypeMap.newInstance(d);
+        }
+        int d = degree(env, p, node, pred, index.intValue(), min);
+        return DatatypeMap.newInstance(d);
+    }
+        
+    int degree(Environment env, Producer p, IDatatype node, IDatatype pred, int n, int min) {
+        IDatatype sub = (n==0)?node:null;
+        IDatatype obj = (n==1)?node:null;
+        DataProducer dp = new DataProducer(getGraph(p));
+        Node graph = env.getGraphNode();
+        if (graph != null) {
+            dp = dp.from(graph);
+        }
+        int count = 0;
+        
+        for (Edge edge : dp.iterate(sub, pred, obj)) {
+            if (edge == null) {
+                break;
+            }
+            if (node.equals(edge.getNode(n).getDatatypeValue())) {
+                count++;
+                if (count >= min) {
+                    break;
+                }
+            }
+            else {
+                break;
+            }
+        }
+        return count;
+    }
+    
+    public Graph getGraph() {
+        return (Graph) getProducer().getGraph();
+    }
+    
     
     // name of  current named graph 
     IDatatype name(Environment env) {
@@ -845,20 +975,54 @@ public class PluginImpl
      * Return Loopable with edges
      */
     @Override
-    public IDatatype edge(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj) {   
-       return DatatypeMap.createObject(getDataProducer(p, subj, pred, obj));        
+    public IDatatype edge(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj) { 
+        return edgeList(env, p, subj, pred, obj, null);
+    }
+    
+    @Override
+    public IDatatype edge(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj, IDatatype graph) { 
+        return edgeList(env, p, subj, pred, obj, graph);
     }
     
     public IDatatype edge(IDatatype subj, IDatatype pred) {   
-       return DatatypeMap.createObject(getDataProducer(getProducer(), subj, pred, null));        
+       return DatatypeMap.createObject(getDataProducer(null, getProducer(), subj, pred, null));        
     }
     
-    public IDatatype edge(IDatatype subj, IDatatype pred, IDatatype obj) {   
-       return DatatypeMap.createObject(getDataProducer(getProducer(), subj, pred, obj));        
+    public IDatatype edge(IDatatype subj, IDatatype pred, IDatatype obj) { 
+        return DatatypeMap.createObject(getDataProducer(null, getProducer(), subj, pred, obj));  
+    }
+    
+    IDatatype edgeList(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj, IDatatype graph) {
+        DataProducer dp = getEdgeProducer(env, p, subj, pred, obj, graph);       
+        return dp.getEdges();
+    }
+    
+    @Override
+    public IDatatype subjects(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj, IDatatype graph) {
+        DataProducer dp = getEdgeProducer(env, p, subj, pred, obj, graph).setDuplicate(false);
+        return dp.getSubjects();
+    }
+    
+    @Override
+    public IDatatype objects(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj, IDatatype graph) {
+        DataProducer dp = getEdgeProducer(env, p, subj, pred, obj, graph).setDuplicate(false);
+        return dp.getObjects();
+    }
+    
+    
+    DataProducer getEdgeProducer(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj, IDatatype graph) {
+        DataProducer dp = getDataProducer(env, p, subj, pred, obj);
+        if (graph != null && (! graph.isList() || graph.size() > 0)) {
+            dp.from(graph);
+        }
+        else if (env != null && env.getGraphNode() != null) {
+            dp.from(env.getGraphNode());
+        }
+        return dp;
     }
           
-    DataProducer getDataProducer(Producer p, IDatatype subj, IDatatype pred, IDatatype obj){
-       return new DataProducer(getGraph(p)).iterate(subj, pred, obj);       
+    DataProducer getDataProducer(Environment env, Producer p, IDatatype subj, IDatatype pred, IDatatype obj){
+       return new DataProducer(getGraph(p)).setDuplicate(true).iterate(subj, pred, obj);       
     } 
     
   
@@ -878,9 +1042,9 @@ public class PluginImpl
         if (dt.isPointer()){
             Pointerable obj = dt.getPointerObject();
            switch (dt.pointerType()){
-               case Pointerable.EDGE_POINTER:
+               case TRIPLE:
                    return (IDatatype) obj.getEdge().getGraph().getValue();
-               case Pointerable.MAPPINGS_POINTER:                   
+               case MAPPINGS:                   
                    return DatatypeMap.createObject(obj.getMappings().getGraph());
            }           
         }
@@ -888,7 +1052,7 @@ public class PluginImpl
     }
     
     private IDatatype access(Expr exp, Environment env, Producer p, IDatatype dt) {
-        if (! (dt.isPointer() && dt.pointerType() == Pointerable.EDGE_POINTER)){
+        if (! (dt.isPointer() && dt.pointerType() == TRIPLE)){
             return null;
         }
         Edge ent = dt.getPointerObject().getEdge();        
@@ -933,11 +1097,11 @@ public class PluginImpl
             return null;
         }
         
-        if (dt1.pointerType() == Pointerable.MAPPINGS_POINTER){
+        if (dt1.pointerType() == MAPPINGS){
             return algebra(exp, env, p, dt1, dt2);
         }
         
-        if (dt1.pointerType() == Pointerable.GRAPH_POINTER){
+        if (dt1.pointerType() == GRAPH){
             Graph g1 = (Graph) dt1.getPointerObject();
             Graph g2 = (Graph) dt2.getPointerObject();
             Graph g = g1.union(g2);
@@ -954,7 +1118,7 @@ public class PluginImpl
             return null;
         }
         
-        if (dt1.pointerType() == Pointerable.MAPPINGS_POINTER){
+        if (dt1.pointerType() == MAPPINGS){
             Mappings m1 = dt1.getPointerObject().getMappings();
             Mappings m2 = dt2.getPointerObject().getMappings();
             
@@ -971,60 +1135,107 @@ public class PluginImpl
         
         return null;
     }
+    
+    Binding getBinding(Environment env) {
+        return (Binding) env.getBind();
+    }
 
     @Override
-    public IDatatype tune(Expr exp, Environment env, Producer p, IDatatype dt1, IDatatype dt2) {
+    public IDatatype tune(Expr exp, Environment env, Producer p, IDatatype... dt) {
+        if (dt.length < 2) {
+            return null;
+        }
+        IDatatype dt1 = dt[0];
+        IDatatype dt2 = dt[1];
+        IDatatype dt3 = (dt.length > 2) ? dt[2] : null;
         Graph g = getGraph(p);
         String label = dt1.getLabel();
-        if (label.equals(LISTEN)){  
-            if (dt2.booleanValue()){
-                if (env.getEval() != null){
-                    g.addListener(new GraphListen(env.getEval()));
+        switch (label) {
+            case LISTEN:
+                if (dt2.booleanValue()) {
+                    if (env.getEval() != null) {
+                        g.addListener(new GraphListen(env.getEval()));
+                    }
+                } else {
+                    g.removeListener();
                 }
-            }
-            else {
-                g.removeListener();
-            }
+                break;
+            case VERBOSE:
+                getEventManager(p).setVerbose(dt2.booleanValue());
+                break;
+            case DEBUG:
+                switch (dt2.getLabel()) {
+                    case TRANSFORMER:
+                        // xt:tune(st:debug, st:transformer, st:ds)
+                        Transformer.debug(dt3.getLabel(), dt.length > 3 ? dt[3].booleanValue() : true);
+                        break;
+                        
+                    case BINDING:
+                        getBinding(env).setDebug(dt3.booleanValue());
+                        break;
+                        
+                    default:
+                        getEvaluator().setDebug(dt2.booleanValue());
+                }
+                break;
+                
+            case EVENT:
+                getEventManager(p).setVerbose(dt2.booleanValue());
+                getGraph(p).setDebugMode(dt2.booleanValue());
+                break;
+            case EVENT_LOW:
+                getEventManager(p).setVerbose(dt2.booleanValue());
+                getEventManager(p).hide(Event.Insert);
+                getEventManager(p).hide(Event.Construct);
+                getGraph(p).setDebugMode(dt2.booleanValue());
+                break;
+            case METHOD:
+                getEventManager(p).setMethod(dt2.booleanValue());
+                break;
+            case SHOW:
+                getEventManager(p).setVerbose(true);
+                Event e = Event.valueOf(dt2.stringValue().substring(NSManager.EXT.length()));
+                if (e != null) {
+                    getEventManager(p).show(e);
+                }
+                break;
+            case HIDE:
+                getEventManager(p).setVerbose(true);
+                e = Event.valueOf(dt2.stringValue().substring(NSManager.EXT.length()));
+                if (e != null) {
+                    getEventManager(p).hide(e);
+                }
+                break;
+            case NODE_MGR:
+                getGraph(p).tuneNodeManager(dt2.booleanValue());
+                break;
+            case VISITOR:
+                QuerySolver.setVisitorable(dt2.booleanValue());
+                break;
+
+            case RDF_STAR:
+                if (dt2.getLabel().equals(VARIABLE)) {
+                    ASTQuery.REFERENCE_QUERY_BNODE = !ASTQuery.REFERENCE_QUERY_BNODE;
+                    System.out.println("rdf* query variable: " + ASTQuery.REFERENCE_QUERY_BNODE);
+                } else if (dt2.getLabel().equals(URI)) {
+                    ASTQuery.REFERENCE_DEFINITION_BNODE = !ASTQuery.REFERENCE_DEFINITION_BNODE;
+                    System.out.println("rdf* id uri: " + ASTQuery.REFERENCE_DEFINITION_BNODE);
+                }
+                break;
+                
+            case TYPECHECK:
+                Function.typecheck = dt2.booleanValue();
+                System.out.println("typecheck: " + Function.typecheck);
+                break;
+            case RDF_TYPECHECK:
+                Function.rdftypecheck = dt2.booleanValue();
+                System.out.println("rdftypecheck: " + Function.rdftypecheck);
+                break;
+
         }
-        else if (label.equals(DEBUG)){
-            getEvaluator().setDebug(dt2.booleanValue());
-        }
-        else if (label.equals(EVENT)) {
-            getEventManager(p).setVerbose(dt2.booleanValue());
-            getGraph(p).setDebugMode(dt2.booleanValue());
-        }
-        else if (label.equals(EVENT_LOW)) {
-            getEventManager(p).setVerbose(dt2.booleanValue());
-            getEventManager(p).hide(Event.Insert);
-            getEventManager(p).hide(Event.Construct);
-            getGraph(p).setDebugMode(dt2.booleanValue());
-        }
-        else if (label.equals(METHOD)) {
-            getEventManager(p).setMethod(dt2.booleanValue());
-        }
-        else if (label.equals(SHOW)) { 
-            getEventManager(p).setVerbose(true);
-            Event e = Event.valueOf(dt2.stringValue().substring(NSManager.EXT.length()));
-            if (e != null) {
-                getEventManager(p).show(e);
-            }            
-        }
-        else if (label.equals(HIDE)) {           
-            getEventManager(p).setVerbose(true);
-            Event e = Event.valueOf(dt2.stringValue().substring(NSManager.EXT.length()));
-            if (e != null) {
-                getEventManager(p).hide(e);
-            }             
-        }
-        else if (label.equals(NODE_MGR)) {     
-            getGraph(p).tuneNodeManager(dt2.booleanValue());
-        }
-        else if (label.equals(VISITOR)) {
-            QuerySolver.setVisitorable(dt2.booleanValue());
-            //System.out.println("QuerySolver visitorable: " + QuerySolver.isVisitorable());
-        }
+
         return TRUE;
-     }
+    }
     
     EventManager getEventManager(Producer p) {
         return getGraph(p).getEventManager();
@@ -1172,23 +1383,6 @@ public class PluginImpl
     }
     
     
-      
-    IDatatype kgram(Environment env, Graph g, String  query, Mapping m) {  
-        QueryProcess exec = QueryProcess.create(g, true);
-        exec.setRule(env.getQuery().isRule());
-        try {
-            Mappings map = exec.sparqlQuery(query, m, getDataset(env));
-            if (map.getGraph() == null){
-                return DatatypeMap.createObject(map);
-            }
-            else {
-                return DatatypeMap.createObject(map.getGraph());
-            }
-        } catch (EngineException e) {
-            return DatatypeMap.createObject(new Mappings());
-        }
-    }
-     
     Dataset getDataset(Environment env) {
         Context c = (Context) env.getQuery().getContext();
         if (c != null) {
@@ -1204,6 +1398,22 @@ public class PluginImpl
             return new Dataset(c);
         }
         return null;
+    } 
+    
+    IDatatype kgram(Environment env, Graph g, String  query, Mapping m) {  
+        QueryProcess exec = QueryProcess.create(g, true);
+        exec.setRule((env==null)?false:env.getQuery().isRule());
+        try {
+            Mappings map = exec.sparqlQuery(query, m, (env==null)?null:getDataset(env));
+            if (map.getGraph() == null){
+                return DatatypeMap.createObject(map);
+            }
+            else {
+                return DatatypeMap.createObject(map.getGraph());
+            }
+        } catch (EngineException e) {
+            return DatatypeMap.createObject(new Mappings());
+        }
     }
     
      /**
@@ -1218,6 +1428,11 @@ public class PluginImpl
         if (ldt.length > 0){
             m = createMapping(getProducer(), ldt, 0);
         }
+        else {
+            m = new Mapping();
+        }
+        // share LDScript global variables
+        m.setBind(getEnvironment().getBind());
         QueryProcess exec = QueryProcess.create(g, true);
         try {   
             Query q = queryCache.get(query.getLabel());
@@ -1234,6 +1449,8 @@ public class PluginImpl
                 return DatatypeMap.createObject(map.getGraph());
             }
         } catch (EngineException e) {
+            System.out.println(e);
+            e.printStackTrace();
             return DatatypeMap.createObject(new Mappings());
         }
     }
@@ -1260,9 +1477,14 @@ public class PluginImpl
   
     
     IDatatype read(IDatatype dt, Environment env, Producer p){
-        if (! readWriteAuthorized()){
-            return null;
-        }
+        return read(dt);
+    }
+    
+    @Override
+    public IDatatype read(IDatatype dt){
+//        if (! readWriteAuthorized()){
+//            return null;
+//        }
         QueryLoad ql = QueryLoad.create();
         String str = null;
         try {
@@ -1271,7 +1493,7 @@ public class PluginImpl
             LoggerFactory.getLogger(PluginImpl.class.getName()).error(  "", ex);
         }
         if (str == null){
-            str = "";
+            return null; //str = "";
         }
         return DatatypeMap.newInstance(str);
     }
@@ -1327,12 +1549,13 @@ public class PluginImpl
     public Expr getDefine(Expr exp, Environment env, String name, int n){
         if (Processor.getOper(name) == ExprType.UNDEF){
             return null;            
-        }
+        }       
         Query q = env.getQuery().getGlobalQuery();
         ASTQuery ast = getAST((Expression) exp, q);
         Function fun = ast.defExtension(name, name, n);
         q.defineFunction(fun);
-        q.getCreateExtension().define(fun);
+        ASTExtension ext = Interpreter.getCreateExtension(q);
+        ext.define(fun);
         return fun;
     }
     

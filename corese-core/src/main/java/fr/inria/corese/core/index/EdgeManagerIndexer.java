@@ -1,5 +1,6 @@
 package fr.inria.corese.core.index;
 
+import fr.inria.corese.core.Event;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -15,6 +16,7 @@ import fr.inria.corese.core.Index;
 import fr.inria.corese.core.Serializer;
 import java.util.HashMap;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.sparql.triple.parser.AccessRight;
 
 /**
  * Table property node -> List<Edge>
@@ -35,6 +37,20 @@ import fr.inria.corese.kgram.api.core.Edge;
  */
 public class EdgeManagerIndexer 
         implements Index {
+
+    /**
+     * @return the loopMetadata
+     */
+    public boolean isLoopMetadata() {
+        return loopMetadata;
+    }
+
+    /**
+     * @param loopMetadata the loopMetadata to set
+     */
+    public void setLoopMetadata(boolean loopMetadata) {
+        this.loopMetadata = loopMetadata;
+    }
     // true: store internal Edge without predicate Node
     public static boolean test = true;
     private static final String NL = System.getProperty("line.separator");
@@ -57,7 +73,9 @@ public class EdgeManagerIndexer
     // Property Node -> Edge List 
     HashMap<Node, EdgeManager> table;
     NodeManager nodeManager;
+    HashMap<Node, Node> map;
     private boolean debug = false;
+    private boolean loopMetadata = false;
 
     public EdgeManagerIndexer(Graph g, boolean bi, int index) {
         init(g, bi, index);
@@ -493,11 +511,7 @@ public class EdgeManagerIndexer
     }
 
     private void reduce(Node pred) {
-        EdgeManager el = get(pred);
-        int rem = el.reduce(nodeManager);
-        if (rem > 0) {
-            graph.setSize(graph.size() - rem);
-        }
+        get(pred).reduce(nodeManager);
     }
     
     @Override
@@ -698,7 +712,12 @@ public class EdgeManagerIndexer
         if (i == -1) {
             return null;
         }
-
+        
+        Edge target = list.get(i);
+        if (AccessRight.isActive() && AccessRight.reject(edge.getLevel(), target.getLevel())) {
+            return null;
+        }
+        
         Edge ent = list.remove(i);
         if (getIndex() == 0) {
             graph.setSize(graph.size() - 1);
@@ -875,4 +894,67 @@ public class EdgeManagerIndexer
     @Override
     public void delete(Node pred) {
     }
+    
+    /**
+     *
+     */
+    @Override
+    public void finishUpdate() {
+        if (graph.isEdgeMetadata()) {
+            metadata();
+        }
+    }
+    
+    /**
+     * Merge duplicate rdf* triples:
+     * triple(s p o [q v]) triple(s p o [r s])
+     * ->
+     * triple(s p o [q v ; r s])
+     * PRAGMA: graph must be indexed (edges must be sorted)
+     */
+    @Override
+    public void metadata() {
+        if (map == null) {
+            map = new HashMap<>();
+        }
+        graph.cleanIndex();
+        graph.clearNodeManager();
+        setLoopMetadata(true);
+        graph.getEventManager().start(Event.IndexMetadata);
+        // loop because edge merge may lead to duplicate triple(t1 p t2 t3) triple (t1 p t2 t3)
+        while (isLoopMetadata()) {
+            graph.getEventManager().process(Event.IndexMetadata);
+            setLoopMetadata(false);
+            for (Node p : getProperties()) {
+                // merge duplicate triples with metadata nodes
+                // keep only one triple with one metadata node
+                get(p).metadata();
+            }
+            if (map.size() > 0) {
+                // replace nodes that have been merged
+                replace();
+            }
+        }
+        graph.getEventManager().finish(Event.IndexMetadata);
+        //graph.indexNodeManager();
+        map.clear();
+    }
+    
+    // record that n1 be replaced by n2
+    void replace(Node n1, Node n2) {
+        map.put(n1, n2);
+    }
+    
+     /**
+      * replace nodes that have been merged
+      * _:b1 q v _:b2 r s 
+      * ->
+      * _:b1 q v ; r s
+     */
+    void replace() {
+        for (Node p : getProperties()) {
+            get(p).replace(map);
+        }
+    }
+      
 }

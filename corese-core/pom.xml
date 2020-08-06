@@ -86,12 +86,12 @@
         </dependency>
         <!--RDFa parser-->
         <dependency>
-	    <groupId>${semargl.groupId}</groupId>
-            <artifactId>semargl-rdfa</artifactId>
+         <groupId>${semargl.groupId}</groupId>
+         <artifactId>semargl-rdfa</artifactId>
         </dependency>
         <dependency>
-	    <groupId>${semargl.groupId}</groupId>
-            <artifactId>semargl-core</artifactId>
+         <groupId>${semargl.groupId}</groupId>
+         <artifactId>semargl-core</artifactId>
         </dependency>
         <!-- JSON-LD parser-->
         <dependency>
@@ -106,7 +106,6 @@
         <dependency>
             <groupId>javax.annotation</groupId>
             <artifactId>javax.annotation-api</artifactId>
-            <version>1.3.2</version>
         </dependency>
         <dependency>
             <groupId>org.apache.jena</groupId>
@@ -159,7 +158,35 @@
             </resource>
         </resources>
 
-        <plugins>
+	<plugins>
+		<plugin>
+			<groupId>org.apache.maven.plugins</groupId>
+			<artifactId>maven-shade-plugin</artifactId>
+			<executions>
+				<execution>
+					<phase>package</phase>
+					<goals>
+						<goal>shade</goal>
+					</goals>
+					<configuration>
+						<shadedArtifactAttached>true</shadedArtifactAttached>
+						<shadedClassifierName>jar-with-dependencies</shadedClassifierName>
+						<filters>
+							<filter>
+								<artifact>*:*</artifact>
+								<excludes>
+									<exclude>**/module-info.*</exclude>
+									<exclude>META-INF/*.SF</exclude>
+									<exclude>META-INF/**/*.class</exclude>
+									<exclude>META-INF/*.DSA</exclude>
+									<exclude>META-INF/*.RSA</exclude>
+								</excludes>
+							</filter>
+						</filters>
+					</configuration>
+				</execution>
+			</executions>
+		</plugin>
 		<plugin>
 			<groupId>org.apache.maven.plugins</groupId>
 			<artifactId>maven-surefire-plugin</artifactId>

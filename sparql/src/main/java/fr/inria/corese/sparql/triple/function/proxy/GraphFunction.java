@@ -3,12 +3,13 @@ package fr.inria.corese.sparql.triple.function.proxy;
 import fr.inria.corese.kgram.api.core.Edge;
 import static fr.inria.corese.kgram.api.core.ExprType.XT_GRAPH;
 import static fr.inria.corese.kgram.api.core.ExprType.XT_INDEX;
+import static fr.inria.corese.kgram.api.core.ExprType.XT_NODE;
 import static fr.inria.corese.kgram.api.core.ExprType.XT_OBJECT;
 import static fr.inria.corese.kgram.api.core.ExprType.XT_PROPERTY;
 import static fr.inria.corese.kgram.api.core.ExprType.XT_SUBJECT;
-import static fr.inria.corese.kgram.api.core.ExprType.XT_VALUE;
+import static fr.inria.corese.kgram.api.core.ExprType.XT_VERTEX;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.api.core.Pointerable;
+import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.sparql.api.Computer;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.triple.function.term.Binding;
@@ -36,12 +37,7 @@ public class GraphFunction extends LDScript {
         }
 
         switch (oper()) {
-
-            case XT_VALUE:
-                int index = (param.length == 3) ? param[2].intValue() : 1;
-                Node node = p.getGraph().value(param[0], param[1], index);
-                return (IDatatype) node.getDatatypeValue();
-
+           
             case XT_GRAPH:
                 if (param.length == 0) {
                     return DatatypeMap.createObject(p.getGraph());
@@ -49,6 +45,21 @@ public class GraphFunction extends LDScript {
                 else {
                     return access(param[0], p);
                 }
+                
+            case XT_NODE:
+                Node n = p.getGraph().getNode(param[0]);
+                if (n == null) {
+                    return null;
+                }
+                return DatatypeMap.createObjectBasic(null, n);
+                
+            case XT_VERTEX:
+                Node v = p.getGraph().getVertex(param[0]);
+                if (v == null) {
+                    return null;
+                }
+                return DatatypeMap.createObjectBasic(null, v);    
+                
                 
             default:
                 switch (param.length) {
@@ -59,9 +70,9 @@ public class GraphFunction extends LDScript {
 
         }
     }
-    
+       
     IDatatype access(IDatatype dt, Producer p) {
-        if (!(dt.isPointer() && dt.pointerType() == Pointerable.EDGE_POINTER)) {
+        if (dt.pointerType() != PointerType.TRIPLE) {
             switch (oper()) {
                 case XT_INDEX: return index(dt, p);
                 default: return null;
@@ -88,7 +99,7 @@ public class GraphFunction extends LDScript {
     }
     
     IDatatype index(IDatatype dt, Producer p) {
-        Node n = p.getNode(dt);
+        Node n = getNode(dt, p);
         if (n == null) {
             return null;
         }

@@ -8,19 +8,26 @@ import fr.inria.corese.core.Graph;
 import fr.inria.corese.core.load.Load;
 import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.query.QueryProcess;
+import fr.inria.corese.core.shacl.Shacl;
+import fr.inria.corese.core.shacl.ShaclJava;
 import fr.inria.corese.core.transform.Transformer;
 import fr.inria.corese.core.workflow.Data;
 import fr.inria.corese.core.workflow.ShapeWorkflow;
-import fr.inria.corese.kgram.core.Eval;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.core.Mapping;
 import fr.inria.corese.kgram.core.Mappings;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
+import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.junit.Test;
 
 /**
@@ -29,14 +36,25 @@ import org.junit.Test;
  *
  */
 public class DataShapeTest {
+    static final String SHACL = NSManager.SHAPE+"shacl";
 
     //static String data = "/user/corby/home/AATest/data-shapes/data-shapes-test-suite/tests/";
     static final String data = 
        DataShapeTest.class.getClassLoader().getResource("data/data-shapes/data-shapes-test-suite/tests/").getPath()+"/";
     
     static String[] names = {
-        "core/property", "core/path", "core/node", "core/complex", "core/misc", "core/targets", "core/validation-reports"
-    //   "sparql/node" , "sparql/property", "sparql/component"
+        "core/property",
+             "core/path",
+             "core/node", 
+        "core/complex", // 1.673
+        "core/misc", 
+        "core/targets", 
+        "core/validation-reports",
+//            
+//       "sparql/property",
+//       "sparql/node" ,
+       
+       //  "sparql/component"
     };
     static String qm =
             "prefix mf:      <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .\n"
@@ -76,11 +94,13 @@ public class DataShapeTest {
             + "select * where {"
             + "?x sh:conforms ?b "
             + "}";
+    static IDatatype dtsuc, dtfail; 
     EarlReport report;
     int count = 0;
     int error = 0;
     boolean lds = true;
-    boolean benchmark = false, repeat = false;
+    boolean benchmark = false, repeat = false, verbose=true;
+    boolean done = false;
     HashMap<String, Double> tjava, tlds;
 
     public DataShapeTest() {
@@ -123,7 +143,30 @@ public class DataShapeTest {
     }
 
     public static void main(String [] args) throws LoadException, EngineException, IOException {
-        new DataShapeTest().testSimple();
+        //new DataShapeTest().testSimple();
+        new DataShapeTest().testThread();
+    }
+    
+    void testThread() {
+        for (int i = 0; i<5; i++) {
+            System.out.println("thread:" + i);
+            new ShapeThread().start();
+        }
+    }
+    
+    class ShapeThread extends Thread {
+        @Override
+        public void run() {
+            try {
+                new DataShapeTest().testSimple();
+            } catch (LoadException ex) {
+                Logger.getLogger(DataShapeTest.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (EngineException ex) {
+                Logger.getLogger(DataShapeTest.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (IOException ex) {
+                Logger.getLogger(DataShapeTest.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
     }
     
       @Test
@@ -154,7 +197,7 @@ public class DataShapeTest {
     }
 
     public void process() throws LoadException, EngineException, IOException {
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 5; i++) {
             // warm up
             test();
         }
@@ -170,7 +213,11 @@ public class DataShapeTest {
 
    
     public void test() throws LoadException, EngineException, IOException {
+          Access.set(Access.Feature.LINKED_FUNCTION, Access.Level.DEFAULT);
+
         // 4 distinct from 4.0
+//        Function.typecheck = true;
+//        Function.rdftypecheck = true;
         report = new EarlReport("file://" + data);
         //DatatypeMap.setSPARQLCompliant(true);
         for (String name : names) {
@@ -230,8 +277,11 @@ public class DataShapeTest {
     }
 
     void file(String file) throws EngineException, LoadException {
-
-//        if ( file.contains("shacl-shacl")){
+        //System.out.println("start: " + file);
+//        if (file.contains("severity-002")) { // || file.contains("and-001")){
+//            //ok
+//        }
+//        else {
 //            return;
 //        }
 
@@ -242,13 +292,16 @@ public class DataShapeTest {
         Mappings map = exec.query(qdata);
         IDatatype datadt  = (IDatatype) map.getValue("?data");
         IDatatype shapedt = (IDatatype) map.getValue("?shape");
-//        System.out.println(datadt.getLabel());
-//        System.out.println(shapedt.getLabel());
-        ShapeWorkflow wf = new ShapeWorkflow(shapedt.getLabel(), datadt.getLabel(), false, lds);       
-        Data res = wf.process();
-        Graph greport = res.getVisitedGraph();
         
-        //greport = new ShapeWorkflow().process(datadt.getLabel(), shapedt.getLabel());
+        Graph greport    = exec(shapedt.getLabel(), datadt.getLabel());
+
+//        Graph greport = exec(shapedt.getLabel(), datadt.getLabel());
+//        if (greport.size() != ggg.size()) {
+//            System.out.println("error: " + greport.size() + " " + ggg.size());
+//            System.out.println(Transformer.create(greport, Transformer.TURTLE).process().getLabel());
+//            System.out.println(Transformer.create(ggg, Transformer.TURTLE).process().getLabel());
+//
+//        }
 
         QueryProcess exec0 = QueryProcess.create(greport);
         Mappings mm = exec0.query(qcheck);
@@ -266,25 +319,113 @@ public class DataShapeTest {
         }
 
         if (!benchmark || mapkgram.size() != mapw3c.size()) {
-            System.out.println(count++ + " " + mes + file + " " + mapw3c.size() + " " + mapkgram.size());
+            if (verbose) {
+                System.out.println(count++ + " " + mes + file + " " + mapw3c.size() + " " + mapkgram.size());
+            }
 //            System.out.println("w3c: \n"   + mapw3c);
 //            System.out.println("--");
 //            System.out.println("kgram: \n" + mapkgram);
         }
-        if (mm.size() != 1) {
-            System.out.println("**** " + mm.size() + " reports");
-        }
-
-        if (mapkgram.size() == mapw3c.size()) {
-            boolean suc = compare(file, g, mapw3c, mapkgram);
-            report.result(mapw3c, suc);
-            if (!suc) {
-                error++;
+        
+        if (true) {
+            if (mm.size() != 1) {
+                System.out.println("**** " + mm.size() + " reports");
             }
-        } else {
-            trace(g, greport);
-            report.result(mapw3c, false);
+
+            if (mapkgram.size() == mapw3c.size()) {
+                boolean suc = compare(file, g, mapw3c, mapkgram);
+                report.result(mapw3c, suc);
+                if (!suc) {
+                    error++;
+                }
+            } else {
+                trace(g, greport);
+                report.result(mapw3c, false);
+            }
         }
+    }
+    
+    
+    Graph exec(String shape, String data) throws EngineException, LoadException {
+        return execds(shape, data);
+    }  
+    
+    // 4.705 4.645
+    // 4.275
+    Graph execds(String shape, String data) throws EngineException, LoadException {
+        Graph g  = load(data);        
+        Graph sh = (data.equals(shape)) ? g : load(shape, g);  
+        Shacl shacl = new Shacl(g);
+        before(shacl);
+        //shacl.setTrace(true);
+        //Graph res = shacl.eval(sh); 
+        //shacl.setup(Shacl.SETUP_DETAIL, true);
+        Graph res = shacl.funeval(); 
+        after(shacl);
+        //trace();
+        return res;
+    }
+    
+    void before(Shacl shacl) {
+        if (dtsuc != null) {
+            shacl.input().setVariable(shacl.TRACEMAPSUC_VAR, dtsuc);
+            shacl.input().setVariable(shacl.TRACEMAPFAIL_VAR, dtfail);
+        } 
+        //setup(shacl);
+    }
+    
+    void setup(Shacl shacl){
+        IDatatype map = DatatypeMap.map();
+        map.set(DatatypeMap.newResource(shacl.SETUP_DETAIL), DatatypeMap.TRUE);
+        shacl.input().setVariable(shacl.SETUP_VAR, map);
+    }
+    
+    void after(Shacl shacl) {
+        dtsuc  = shacl.output().getVariable(shacl.TRACEMAPSUC_VAR);
+        dtfail = shacl.output().getVariable(shacl.TRACEMAPFAIL_VAR);
+    }
+    
+    void trace() {
+        trace(dtsuc);
+        trace(dtfail);
+    }
+    
+    void trace(IDatatype dt) {
+        IDatatype key = DatatypeMap.newResource(NSManager.SHACL, "subtotal");
+        for (IDatatype name : dt.getMap().keySet()) {
+            IDatatype val = dt.getMap().get(name);
+            IDatatype count = val.getMap().get(key);
+            System.out.println(name + " " + count);
+        }
+    }
+    
+    // 4.471
+    Graph execjava(String shape, String data) throws EngineException, LoadException {
+        Graph g = load(data);
+        Graph sh = (data.equals(shape)) ? g : load(shape, g);
+        ShaclJava java = new ShaclJava(g);
+        Graph res = java.eval();
+        return res;
+    }
+    
+    Graph execwf(String shape, String data) throws EngineException {
+        ShapeWorkflow wf = new ShapeWorkflow(shape, data, false, lds);
+        Data res = wf.process();
+        return res.getVisitedGraph();
+    }
+    
+    
+    Graph load(String path) throws LoadException {
+        Graph g = Graph.create();
+        load(path, g);
+        return g;
+    }
+    
+    Graph load(String path, Graph g) throws LoadException {
+        Load ld = Load.create(g);
+        ld.parse(path);
+        g.index(); 
+        return g;
     }
     
     void result(Mappings map) {
@@ -328,27 +469,28 @@ public class DataShapeTest {
     }
 
     boolean compare(int i, String mes, Graph g, Mapping w3, Mapping kg, String var, boolean path) {
-        IDatatype dt1 = (IDatatype) w3.getValue(var);
-        IDatatype dt2 = (IDatatype) kg.getValue(var);
-        if (dt1 != null) {
-            if (dt2 == null) {
-                System.out.println(i + mes + dt1 + " " + dt2);
+        IDatatype dtw3 = (IDatatype) w3.getValue(var);
+        IDatatype dtkg = (IDatatype) kg.getValue(var);
+        if (dtw3 != null) {
+            if (dtkg == null) {
+                System.out.println(i + mes + dtw3 + " " + dtkg);
                 return false;
-            } else if (path && dt1.isBlank()) {
+            } else if (path && dtw3.isBlank()) {
                 // in kg report graph,  path is pretty printed and stored in a st:graph custom literal datatype
                 // in such a way that once pretty printed, validation report graph path is a SHACL path
                 // hence here we compare the pretty print of  W3C path with pretty print of kg path
                 Transformer t = Transformer.create(g, Transformer.TURTLE);
-                IDatatype res = t.process(dt1);
-                if (!res.stringValue().equals(dt2.stringValue())) {
+                IDatatype ddw3 = t.process(dtw3);
+                if (!ddw3.stringValue().equals(dtkg.stringValue())) {
                     System.out.println(i + mes);
-                    System.out.println(res.stringValue() + "\n" + dt2.stringValue());
+                    System.out.println("w3c: " + ddw3.stringValue());
+                    System.out.println("kg:  " + dtkg.stringValue() + " " + dtkg.getList());
                     System.out.println("__");
                     return false;
                 }
-            } else //if ((!bn || !p1.isBlank()) && !p1.equals(p2)) {
-            if (!((dt1.isBlank() && dt2.isBlank()) || dt1.equals(dt2))) {
-                System.out.println(i + mes + dt1 + " " + dt2);
+            } else 
+            if (!((dtw3.isBlank() && dtkg.isBlank()) || dtw3.equals(dtkg))) {
+                System.out.println(i + mes + dtw3 + " " + dtkg);
                 return false;
             }
 

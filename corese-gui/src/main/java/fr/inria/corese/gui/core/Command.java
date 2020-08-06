@@ -1,6 +1,6 @@
 package fr.inria.corese.gui.core;
 
-import fr.inria.corese.core.query.QueryProcess;
+import fr.inria.corese.core.Graph;
 import java.util.HashMap;
 
 /**
@@ -17,13 +17,16 @@ public class Command extends HashMap<String, String> {
     public static final String STRING           = "-string";
     public static final String WORKFLOW         = "-wf";
     public static final String REENTRANT        = "-re";
+    public static final String RDF_STAR         = "-rdfstar";
+    public static final String ACCESS           = "-access";
         
+    String[] args;
     
     Command (String[] args) {
-        init(args);
+        this.args = args;
     }
     
-    void init(String[] args) {
+    Command init() {
         int i = 0;
         while (i < args.length){
             String str = args[i++];
@@ -52,12 +55,19 @@ public class Command extends HashMap<String, String> {
                 case REENTRANT:
                     put(REENTRANT, "true");
                     break;
-                   
+                    
+                 case RDF_STAR:
+                    put(RDF_STAR, "true");
+                    Graph.setEdgeMetadataDefault(true);
+                    break;    
+                                      
                 default:
                     put(str, "true");
                     break;   
             }
-        }
+        }        
+        return this;
     }
+    
 
 }

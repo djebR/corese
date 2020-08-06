@@ -1,5 +1,6 @@
 package fr.inria.corese.compiler.parser;
 
+import fr.inria.corese.kgram.api.core.DatatypeValue;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.triple.cst.RDFS;
 import fr.inria.corese.sparql.triple.parser.Atom;
@@ -11,8 +12,39 @@ import fr.inria.corese.kgram.path.Path;
 
 public class NodeImpl implements Node {
 
+    /**
+     * @return the matchCardinality
+     */
+    public boolean isMatchCardinality() {
+        return matchCardinality;
+    }
+
+    /**
+     * @param matchCardinality the matchCardinality to set
+     */
+    public void setMatchCardinality(boolean matchCardinality) {
+        this.matchCardinality = matchCardinality;
+    }
+
+    /**
+     * @return the matchNodeList
+     */
+    @Override
+    public boolean isMatchNodeList() {
+        return matchNodeList;
+    }
+
+    /**
+     * @param matchNodeList the matchNodeList to set
+     */
+    public void setMatchNodeList(boolean matchNodeList) {
+        this.matchNodeList = matchNodeList;
+    }
+
     Atom atom;
     int index = -1;
+    private boolean matchNodeList = false;
+    private boolean matchCardinality = false;
 
     public NodeImpl(Atom at) {
         atom = at;
@@ -58,6 +90,17 @@ public class NodeImpl implements Node {
     @Override
     public IDatatype getDatatypeValue() {
         return atom.getDatatypeValue();
+    }
+    
+    @Override
+    public void setDatatypeValue(DatatypeValue dt) {
+        if (dt instanceof IDatatype) {
+            setDatatypeValue((IDatatype)dt);
+        }
+    }
+    
+    public void setDatatypeValue(IDatatype dt) {
+        atom = Constant.create(dt);
     }
     
     @Override

@@ -13,6 +13,7 @@ import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.ASTQuery;
 import fr.inria.corese.sparql.triple.parser.Dataset;
 import fr.inria.corese.compiler.api.QueryVisitor;
+import fr.inria.corese.compiler.eval.Interpreter;
 import fr.inria.corese.kgram.api.core.Edge;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.core.Exp;
@@ -24,6 +25,8 @@ import fr.inria.corese.core.Graph;
 import fr.inria.corese.core.transform.Transformer;
 import static fr.inria.corese.core.transform.Transformer.STL_PROFILE;
 import fr.inria.corese.core.transform.TransformerVisitor;
+import fr.inria.corese.kgram.filter.Extension;
+import fr.inria.corese.sparql.triple.parser.ASTExtension;
 
 /**
  * Equivalent of RuleEngine for Query and Template Run a set of query
@@ -144,8 +147,7 @@ public class QueryEngine implements Engine {
     }
 
     /**
-     * templates share profile function definitions
-     * function st:optimize(){} : run TransformerVisitor to optimize template
+     * templates inherit template st:profile function definitions
      */
     public void profile() {
         Query profile = getTemplate(STL_PROFILE);
@@ -154,18 +156,32 @@ public class QueryEngine implements Engine {
             if (profile.getExtension() != null) {
                 // share profile function definitions in templates
                 fr.inria.corese.compiler.parser.Transformer tr = fr.inria.corese.compiler.parser.Transformer.create();
-                tr.definePublic(profile.getExtension(), profile, false);
-                TransformerVisitor tv = new TransformerVisitor(profile.getExtension().get(Transformer.STL_OPTIMIZE) != null);
+                ASTExtension ext = Interpreter.getExtension(profile);
+                tr.definePublic(ext, profile, false);
+                //TransformerVisitor tv = new TransformerVisitor(profile.getExtension().get(Transformer.STL_OPTIMIZE) != null);
                 
                 for (Query t : getTemplates()) {
-                    t.addExtension(profile.getExtension());
-                    tv.visit(t);
+                    addExtension(t, ext);
+                    //tv.visit(t);
                 }
                 for (Query t : getNamedTemplates()) {
-                    t.addExtension(profile.getExtension());
-                    tv.visit(t);
+                    addExtension(t, ext);
+                    //tv.visit(t);
                 }
             }
+        }
+    }
+    
+    void addExtension(Query q, ASTExtension ext){
+        if (ext == null){
+            return;
+        }
+        if (q.getExtension() == null){
+            q.setExtension(ext);
+        }
+        else {
+            //q.getExtension().add(ext);
+            Interpreter.getExtension(q).add(ext);
         }
     }
             
@@ -251,7 +267,6 @@ public class QueryEngine implements Engine {
         }
         for (Query q : list) {
 
-            //q.setSynchronized(isWorkflow);
             if (isDebug) {
                 q.setDebug(isDebug);
                 System.out.println(q.getAST());
@@ -267,7 +282,7 @@ public class QueryEngine implements Engine {
 
     public Mappings process(Query q, Mapping m) {
         try {
-            Mappings map = getQueryProcess().query(q, m, null);
+            Mappings map = getQueryProcess().query(null, q, m, null);
             return map;
         } catch (EngineException e) {
             // TODO Auto-generated catch block

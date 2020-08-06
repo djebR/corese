@@ -75,7 +75,7 @@ public class GetGen extends TermEval {
             return getResult(DatatypeMap.get(dt.toList(), ind));    
         }
         if (dt.isPointer()){
-            Object res = dt.getPointerObject().getValue((var == null) ? null : var.getLabel(), ind.intValue());
+            Object res = dt.getValue((var == null) ? null : var.getLabel(), ind.intValue());
             if (res == null) {                
                 return UNDEF;
             }                 
@@ -83,7 +83,7 @@ public class GetGen extends TermEval {
         } 
         return getResult(dt.get(ind.intValue()));
     }
-    
+       
     static IDatatype getResult(IDatatype dt){
         if (dt == null){
             return UNDEF;

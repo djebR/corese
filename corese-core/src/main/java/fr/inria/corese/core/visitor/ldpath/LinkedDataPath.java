@@ -12,7 +12,6 @@ import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.ASTQuery;
 import fr.inria.corese.sparql.triple.parser.Constant;
-import fr.inria.corese.sparql.triple.parser.Exp;
 import fr.inria.corese.sparql.triple.parser.Metadata;
 import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.io.IOException;
@@ -37,7 +36,7 @@ import java.util.logging.Logger;
  *
  */
 public class LinkedDataPath implements QueryVisitor {
-   
+    
     public static final String OPTION       = NSManager.USER;
     public static final String URI          = OPTION + "uri";
     public static final String BNODE        = OPTION + "bnode";
@@ -49,6 +48,7 @@ public class LinkedDataPath implements QueryVisitor {
     
     public static final String SPLIT        = "@split";
     public static final String SLICE        = "@slice";
+    public static final String TIMEOUT      = "@timeout";
     public static final String GRAPH        = "@graph";
     
     Graph graph;
@@ -60,6 +60,7 @@ public class LinkedDataPath implements QueryVisitor {
     // path length on remote endpoint
     private int endpointLength = 0;
     int maxQuery = Integer.MAX_VALUE;
+    private int timeout = 10000;
     boolean trace = !true;
 
     // find links between local and endpoint
@@ -196,6 +197,10 @@ public class LinkedDataPath implements QueryVisitor {
         if (ast.hasMetadata(Metadata.OPTION)) {
             processOption(ast.getMetadata().getValues(Metadata.OPTION));
             System.out.println("Option: " + getOption());
+        }
+        if (ast.getMetadata().hasMetadata(TIMEOUT)) {
+            setTimeout(ast.getMetadata().getDatatypeValue(TIMEOUT).intValue());
+            System.out.println("Timeout: " + getTimeout());
         }
         if (ast.getMetadata().hasMetadata(SPLIT)) {
             setMaxQuery(ast.getMetadata().getDatatypeValue(SPLIT).intValue());
@@ -336,12 +341,21 @@ public class LinkedDataPath implements QueryVisitor {
         if (trace) {
             System.out.println(ast1);
         }
+        complete(ast1);
         Mappings map = exec.query(ast1);
         if (trace) {
             System.out.println(map);
         }
         List<Constant> list = getPropertyList(map);
         process(ast1, list, i, varIndex);
+    }
+    
+    void complete(ASTQuery a) {
+        if (getAST().hasMetadata(Metadata.LIMIT)) {
+            System.out.println("limit: " + getAST().getMetadata().getDatatypeValue(Metadata.LIMIT));
+            a.getMetadata().add(Metadata.LIMIT, getAST().getMetadata().getDatatypeValue(Metadata.LIMIT));
+            a.setLimit(getAST().getMetadata().getDatatypeValue(Metadata.LIMIT).intValue());
+        }       
     }
 
     /**
@@ -402,7 +416,6 @@ public class LinkedDataPath implements QueryVisitor {
 
     
     void propertyBasic(ASTQuery ast1, List<Constant> list, int varIndex) throws InterruptedException {
-        int timeout = 10000;
         ArrayList<QueryProcessThread> plist = new ArrayList<>();
         for (Constant p : list) {
             if (! acceptable (p)) {
@@ -590,7 +603,6 @@ public class LinkedDataPath implements QueryVisitor {
     List<Mappings> variableBasic(ASTQuery ast, List<Constant> list, int varIndex) throws InterruptedException {
         ArrayList<Mappings> mapList = new ArrayList<>();
         ArrayList<QueryProcessThread> plist = new ArrayList<>();
-        int timeout = 10000;
 
         for (Constant p : list) {
             // replace former ?si ?p ?sj by ?si p ?sj
@@ -779,5 +791,20 @@ public class LinkedDataPath implements QueryVisitor {
         }
         return graphList.get(n);
     }
+    
+    /**
+     * @return the timeout
+     */
+    public int getTimeout() {
+        return timeout;
+    }
+
+    /**
+     * @param timeout the timeout to set
+     */
+    public void setTimeout(int timeout) {
+        this.timeout = timeout;
+    }
+  
 
 }

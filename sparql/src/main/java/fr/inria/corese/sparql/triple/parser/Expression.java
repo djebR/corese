@@ -18,6 +18,8 @@ import fr.inria.corese.kgram.api.core.Edge;
 import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Filter;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.EXPRESSION;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.core.Regex;
 import fr.inria.corese.kgram.api.core.TripleStore;
@@ -28,7 +30,6 @@ import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import java.util.Collection;
-import java.util.Iterator;
 
 /**
  * <p>Title: Corese</p>
@@ -84,13 +85,6 @@ public class Expression extends TopExp
         return null;
     }
     
-    // Exp getVariables()
-    // overloaded by Variable
-    void getVariables(List<Variable> list) {
-        
-    }
-    
-
     /**
      * Every filter/select/bind exp is compiled
      */
@@ -207,6 +201,11 @@ public class Expression extends TopExp
     public boolean isPublic() {
         return false;
     }
+    
+    @Override
+    public boolean isDynamic() {
+        return false;
+    }
 
     @Override
     public void setPublic(boolean b) {
@@ -277,11 +276,6 @@ public class Expression extends TopExp
     }
 
     public boolean isFunction(String str) {
-        return false;
-    }
-
-    @Override
-    public boolean isRecExist() {
         return false;
     }
 
@@ -482,6 +476,10 @@ public class Expression extends TopExp
     public Term getTerm() {
         return null;
     }
+    
+    public Term getTermExist() {
+        return null;
+    }
 
     @Override
     public Variable getVariable() {
@@ -510,8 +508,8 @@ public class Expression extends TopExp
         return str;
     }
 
-    public void toJava(JavaCompiler jc) {
-        jc.toJava(this);
+    public void toJava(JavaCompiler jc, boolean arg) {
+        jc.toJava(this, arg);
     }
 
     /**
@@ -548,15 +546,18 @@ public class Expression extends TopExp
     public Expr getExp() {
         return this;
     }
-
+   
+    /**
+     * Variables of a filter
+     */
     @Override
     public List<String> getVariables() {
         return getVariables(false);
     }
-
+    
     @Override
     public List<String> getVariables(boolean excludeLocal) {
-        List<String> list = new ArrayList<String>();
+        List<String> list = new ArrayList<>();
         getVariables(list, excludeLocal);
         return list;
     }
@@ -564,7 +565,18 @@ public class Expression extends TopExp
     public void getVariables(List<String> list, boolean excludeLocal) {
     }
     
+    // filter variables bound by varList 
     public boolean isBound(List<Variable> varList) {
+        List<Variable> list = getInscopeVariables();
+        for (Variable var : list) {
+            if (! varList.contains(var)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public boolean isBound2(List<Variable> varList) {
         List<String> list = getVariables();
         for (String name : list){
             boolean bound = false;
@@ -617,27 +629,44 @@ public class Expression extends TopExp
 
     @Override
     public boolean isAggregate() {
-
         return false;
     }
+    
+    public boolean isTermExist() {
+        return false;
+    }
+
+    public boolean isTermExistRec() {
+        return false;
+    }
+    
+    public boolean isNotTermExist() {
+        return false;
+    }
+
 
     @Override
     public boolean isExist() {
-        if (oper() == ExprType.EXIST) {
-            return true;
-        } else {
-            for (Expr ee : getExpList()) {
-                if (ee.isExist()) {
-                    return true;
-                }
-            }
-        }
+//        if (oper() == ExprType.EXIST) {
+//            return true;
+//        } else {
+//            for (Expr ee : getExpList()) {
+//                if (ee.isExist()) {
+//                    return true;
+//                }
+//            }
+//        }
+        return false;
+    }
+    
+    @Override
+    public boolean isRecExist() {
         return false;
     }
 
+
     @Override
     public boolean isRecAggregate() {
-
         return false;
     }
 
@@ -976,8 +1005,8 @@ public class Expression extends TopExp
     }
 
     @Override
-    public int pointerType() {
-        return Pointerable.EXPRESSION_POINTER;
+    public PointerType pointerType() {
+        return EXPRESSION;
     }
 
     public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
@@ -1035,7 +1064,8 @@ public class Expression extends TopExp
         ArrayList<IDatatype> list = new ArrayList<>();
         if (getArgs() == null){
         }
-        else {
+        else { 
+            list.add(DatatypeMap.createResource(getLabel()));
             for (Expression exp : getArgs()) {
                 list.add(exp.getExpressionDatatypeValue());
             }
@@ -1048,7 +1078,10 @@ public class Expression extends TopExp
         if (getArgs() == null) {
             return null; 
         }
-        Expression exp = getArg(n);
+        if (n == 0) {
+            return DatatypeMap.createResource(getLabel());
+        }
+        Expression exp = getArg(n -1);
         if (exp == null) {
             return null;
         }

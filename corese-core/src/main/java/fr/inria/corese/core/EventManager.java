@@ -7,6 +7,7 @@ import static fr.inria.corese.core.Event.Finish;
 import static fr.inria.corese.core.Event.Process;
 import static fr.inria.corese.core.Event.Start;
 import fr.inria.corese.core.logic.Entailment;
+import fr.inria.corese.sparql.triple.update.Update;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
 
@@ -110,6 +111,9 @@ public class EventManager {
                 graph.startUpdate();
                 break;
                 
+            case UpdateStep:                
+                break;    
+                
             case LoadUpdate:
             case LoadAPI:
                 startLoad();
@@ -174,16 +178,22 @@ public class EventManager {
          switch (e) {
             case Insert:
             case Delete:             
-            case Construct: 
             case LoadUpdate:    
                 graph.indexGraph();            
-                break;
+                break; 
+                
+            case Construct: 
+                graph.indexGraph();
+                // continue
+                
+            case LoadAPI: 
+            case UpdateStep:                
+                graph.finishUpdate();
+                break;            
                 
             case Rule:
                 break;
-                
-            case LoadAPI: break;
-                
+                                
             case ActivateRDFSEntailment:
                 setEntailment(false);
                 break;
@@ -197,13 +207,21 @@ public class EventManager {
                 
             case CleanOntology:
                 break;
+                
+            case IndexMetadata:
+                break;
         }
     }
 
     public void process(Event e, Object o) {
-        trace(Process, e, o);        
+        process(e, o, null);
+    }
+    
+    public void process(Event e, Object o1, Object o2) {
+        trace(Process, e, o1, o2);        
         switch(e) {
-            case Insert: setUpdate(true); break;
+            case Insert: 
+                setUpdate(true); break;
             case Delete: setDelete(true); break;
             case Finish: finish(); break;
         }
@@ -270,8 +288,11 @@ public class EventManager {
     }
 
     void trace(Event type, Event e, Object o) {
+        trace(type, e, o, null);
+    }
+    void trace(Event type, Event e, Object o, Object o2) {
         if (verbose) {
-            getLog().trace(type, e, o);
+            getLog().trace(type, e, o, o2);
         }
     }
     
@@ -295,4 +316,11 @@ public class EventManager {
     public void setVerbose(boolean debug) {
         this.verbose = debug;
     }
+    
+    public void setTrackUpdate(boolean track) {
+        setVerbose(track);
+        getLog().setMethod(track);
+    }
+    
+    
 }

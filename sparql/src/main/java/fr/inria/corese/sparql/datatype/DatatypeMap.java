@@ -1,5 +1,6 @@
 package fr.inria.corese.sparql.datatype;
 
+import fr.inria.corese.kgram.api.core.DatatypeValueFactory;
 import java.util.Hashtable;
 
 import org.slf4j.Logger;
@@ -10,12 +11,15 @@ import fr.inria.corese.sparql.exceptions.CoreseDatatypeException;
 import fr.inria.corese.kgram.api.core.ExpType;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.core.Pointerable;
+import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import org.json.JSONObject;
+import org.w3c.dom.NodeList;
 
 /**
  * <p>
@@ -35,7 +39,7 @@ import java.util.List;
  *
  * @author Olivier Corby, Olivier Savoie
  */
-public class DatatypeMap implements Cst, RDF {
+public class DatatypeMap implements Cst, RDF, DatatypeValueFactory {
 
     /**
      * logger from log4j
@@ -79,7 +83,7 @@ public class DatatypeMap implements Cst, RDF {
     static long COUNT = 0;
     public static CoreseBoolean TRUE = CoreseBoolean.TRUE;
     public static CoreseBoolean FALSE = CoreseBoolean.FALSE;
-    public static final IDatatype EMPTY_LIST = createList(new IDatatype[0]);
+    public static final IDatatype EMPTY_LIST = createList();
     public static final IDatatype EMPTY_STRING = newInstance("");
     static final String LIST = ExpType.EXT + "List";
     private static final int INTMAX = 100;
@@ -173,9 +177,10 @@ public class DatatypeMap implements Cst, RDF {
         put(rdflangString, jTypeLiteral, htlang);
 
         put(XMLLITERAL, jTypeXMLString, XMLLITERAL);
-        put(xsdstring, jTypeString, xsdstring);
+        put(xsdstring,  jTypeString, xsdstring);
         put(xsdboolean, jTypeBoolean, xsdboolean);
-        put(xsdanyURI, jTypeURI, xsdstring);
+        put(xsdanyURI,  jTypeURILiteral, xsdanyURI);
+        //put(xsdanyURI, jTypeURI, xsdstring);
 
         put(xsdnormalizedString, jTypeString, xsdstring);
         put(xsdtoken, jTypeString, xsdstring);
@@ -250,7 +255,7 @@ public class DatatypeMap implements Cst, RDF {
         define(rdflangString, IDatatype.LITERAL);
         define(XMLLITERAL, IDatatype.XMLLITERAL);
         define(xsdboolean, IDatatype.BOOLEAN);
-        define(xsdanyURI, IDatatype.URI);
+        define(xsdanyURI, IDatatype.URI_LITERAL);
         define(xsdstring, IDatatype.STRING);
         define(RDFSRESOURCE, IDatatype.URI);
 
@@ -324,6 +329,10 @@ public class DatatypeMap implements Cst, RDF {
 
         return null;
     }
+    
+    public static IDatatype cast(NodeList list) {
+        return CoreseXML.cast(list);
+    }
 
     public static IDatatype cast(Object obj) {
         if (obj instanceof Number) {
@@ -333,7 +342,9 @@ public class DatatypeMap implements Cst, RDF {
                 return newInstance((Float) obj);
             } else if (obj instanceof Double) {
                 return newInstance((Double) obj);
-            }
+            }  else if (obj instanceof Short) {
+                return newInstance(Integer.valueOf((Short)obj));
+            }          
         } else if (obj instanceof Boolean) {
             return newInstance((Boolean) obj);
         } else if (obj instanceof String) {
@@ -376,6 +387,10 @@ public class DatatypeMap implements Cst, RDF {
 
     public static IDatatype newInstance(int result) {
         return getValue(result);
+    }
+    
+    public static IDatatype create(int result) {
+        return new CoreseInteger(result);
     }
 
     public static IDatatype newInstance(long result) {
@@ -448,7 +463,7 @@ public class DatatypeMap implements Cst, RDF {
     public static IDatatype newStringBuilder(String result) {
         return new CoreseStringBuilder(new StringBuilder(result));
     }
-
+    
     public static IDatatype newInstance(boolean result) {
         if (result) {
             return CoreseBoolean.TRUE;
@@ -468,6 +483,10 @@ public class DatatypeMap implements Cst, RDF {
     }
 
     public static IDatatype newResource(String ns, String name) {
+        return newResource(ns + name);
+    }
+    
+    public static IDatatype uri(String ns, String name) {
         return newResource(ns + name);
     }
 
@@ -527,7 +546,18 @@ public class DatatypeMap implements Cst, RDF {
         IDatatype dt = CoreseDatatype.create(JavaType, datatype, label, lang);
         return dt;
     }
-
+    
+    public static IDatatype newXMLLiteral(String label, org.w3c.dom.Node node) {
+        IDatatype dt = new CoreseXMLLiteral(label);
+        dt.setObject(node);
+        return dt;
+    }
+    
+    public static IDatatype newXMLObject(String label, org.w3c.dom.Node node) {
+        //return newXMLLiteral(label, node);
+        return xml(label, node);
+    }
+    
     public static IDatatype newLiteral(String label) {
         if (literalAsString) {
             return newInstance(label);
@@ -603,21 +633,25 @@ public class DatatypeMap implements Cst, RDF {
         if (obj instanceof Node) {
             return (IDatatype) ((Node) obj).getDatatypeValue();
         }      
+        return createObjectBasic(name, obj);
+    }
+    
+    public static IDatatype createObjectBasic(String name, Object obj) { 
         if (obj instanceof Pointerable) {
             Pointerable ptr = (Pointerable) obj;            
             return new CoresePointer(name==null?defaultName(ptr):name, ptr);
         }       
-        return genericPointer2(name, obj);
+        return genericPointer(name, obj);
     }
     
-    @Deprecated
-    static IDatatype genericPointer1(String name, Object obj){
-        IDatatype dt = createLiteral(name==null?defaultName(obj):name, XMLLITERAL, null);
-        dt.setObject(obj);
-        return dt;
-    }
+//    @Deprecated
+//    static IDatatype genericPointer1(String name, Object obj){
+//        IDatatype dt = createLiteral(name==null?defaultName(obj):name, XMLLITERAL, null);
+//        dt.setObject(obj);
+//        return dt;
+//    }
     
-    static IDatatype genericPointer2(String name, Object obj){
+    static IDatatype genericPointer(String name, Object obj){
         return new CoresePointer(name==null?defaultName(obj):name, new PointerObject(obj));
     }
     
@@ -637,8 +671,24 @@ public class DatatypeMap implements Cst, RDF {
         return dt;
     }
     
-    public static IDatatype map() {
+    public static CoreseMap map() {
         return new CoreseMap();
+    }
+    
+    public static CoreseJSON json(String json) {
+        return new CoreseJSON(json);
+    }
+    
+    public static CoreseJSON json() {
+        return new CoreseJSON(new JSONObject());
+    }
+    
+    public static CoreseXML xml(org.w3c.dom.Node node) {
+        return new CoreseXML(node);
+    }
+    
+    public static CoreseXML xml(String str, org.w3c.dom.Node node) {
+        return new CoreseXML(str, node);
     }
 
     public static IDatatype createList(IDatatype... ldt) {
@@ -649,7 +699,7 @@ public class DatatypeMap implements Cst, RDF {
         return new CoreseList(ldt);
     }
     
-    public static IDatatype newList(Object... ldt) {
+   public static IDatatype newList(Object... ldt) {
         ArrayList<IDatatype> list = new ArrayList<>();
         for (Object obj :  ldt) {
             list.add(getValue(obj));
@@ -668,8 +718,7 @@ public class DatatypeMap implements Cst, RDF {
         }
         return DatatypeMap.newList(l);
     }
-    
-    
+          
     public static IDatatype[] toArray(IDatatype dt) {
         List<IDatatype> list = dt.getValueList();
         IDatatype[] args = new IDatatype[list.size()];
@@ -689,7 +738,7 @@ public class DatatypeMap implements Cst, RDF {
     }
 
     public static IDatatype createList() {
-        return createList(new ArrayList<IDatatype>(0));
+        return createList(new ArrayList<>(0));
     }
 
     public static IDatatype createList(List<IDatatype> ldt) {
@@ -718,10 +767,11 @@ public class DatatypeMap implements Cst, RDF {
      * str) use case: template with st:number()
      */
     public static IDatatype createFuture(Object obj) {
-        CoreseUndefLiteral dt = new CoreseUndefLiteral();
+        //CoreseUndefLiteral dt = new CoreseUndefLiteral();
+        //dt.setFuture(true);
+        CoreseUndefFuture dt = new CoreseUndefFuture();
         dt.setDatatype(xsdstring);
         dt.setObject(obj);
-        dt.setFuture(true);
         return dt;
     }
 
@@ -966,34 +1016,6 @@ public class DatatypeMap implements Cst, RDF {
                 || c == '-' || c == '.' || c == '_' || c == '~';
     }
 
-    // DRAFT
-//    public static IDatatype result(IDatatype dt) {
-//        switch (dt.getCode()) {
-//            // return a copy to prevent side effects with cached IDatatype
-//            // use case: parallel threads
-//            case IDatatype.INTEGER:
-//                if (dt.intValue() < INTMAX) {
-//                    dt = newInstance(dt.intValue());
-//                }
-//                break;
-//
-//            case IDatatype.BOOLEAN:
-//                dt = newInstance(dt.booleanValue());
-//                break;
-//        }
-//        dt.setIndex(IDatatype.RESULT);
-//        return dt;
-//    }
-//
-//    public static boolean isResult(IDatatype dt) {
-//        return dt.getIndex() == IDatatype.RESULT;
-//    }
-//
-//    public static IDatatype getResultValue(IDatatype dt) {
-//        dt.setIndex(IDatatype.VALUE);
-//        return dt;
-//    }
-
     public static boolean isBound(IDatatype dt) {
         return dt != UNBOUND;
     }
@@ -1002,7 +1024,7 @@ public class DatatypeMap implements Cst, RDF {
         if (!dt.isList()) {
             return null;
         }
-        return dt.getList().length();
+        return dt.length();
     }
 
     public static IDatatype first(IDatatype dt) {
@@ -1112,10 +1134,12 @@ public class DatatypeMap implements Cst, RDF {
     }
     
     public static IDatatype remove(IDatatype list, IDatatype elem) {
-        if (!list.isList()) {
-            return null;
+        if (list.isList()) {
+            list.getList().remove(elem);
         }
-        list.getList().remove(elem);
+        else if (list.isMap()){
+            list.getMap().remove(elem);
+        }
         return list;
     }
     
@@ -1127,8 +1151,8 @@ public class DatatypeMap implements Cst, RDF {
         return list;
     }
     
-    public static IDatatype list(IDatatype[] args) {
-        ArrayList<IDatatype> val = new ArrayList<IDatatype>(args.length);
+    public static IDatatype list(IDatatype... args) {
+        ArrayList<IDatatype> val = new ArrayList<>(args.length);
         val.addAll(Arrays.asList(args));
         return createList(val);
     }
@@ -1233,5 +1257,32 @@ public class DatatypeMap implements Cst, RDF {
     public static IDatatype getPublicDatatypeValue() {
         return TRUE.getPublicDatatypeValue();
     }
+    
+
+    // DatatypeValueFactory
+    
+    public static DatatypeMap getDatatypeMap() {
+        return dm;
+    }
+    
+    @Override
+    public Node nodeList(List<Node> list) {
+        return toList(list);
+    }
+    
+    @Override
+    public IDatatype nodeValue(int n) {
+        return newInstance(n);
+    }
+    
+    public static boolean isLiteralDatatype(IDatatype type) {
+        String label = type.getLabel();
+        return label.startsWith(NSManager.DT)
+                || label.startsWith(NSManager.XSD)
+                || label.equals(fr.inria.corese.sparql.datatype.RDF.XMLLITERAL)
+                || label.equals(fr.inria.corese.sparql.datatype.RDF.LANGSTRING)
+                || label.equals(fr.inria.corese.sparql.datatype.RDF.HTML);
+    }
+ 
 
 }

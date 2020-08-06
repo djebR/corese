@@ -12,7 +12,7 @@
 	</parent>
 
 	<properties>
-		<maven.test.skip>false</maven.test.skip>
+		<maven.test.skip>true</maven.test.skip>
 	</properties>
 	<artifactId>corese-server</artifactId>
 
@@ -43,6 +43,11 @@
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
 			<scope>test</scope>
+		</dependency>
+                <dependency>
+			<groupId>${project.parent.groupId}</groupId>
+			<artifactId>shex</artifactId>
+			<version>${project.parent.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>${project.parent.groupId}</groupId>
@@ -226,6 +231,7 @@
 								<filter>
 									<artifact>*:*</artifact>
 									<excludes>
+										<exclude>**/module-info.*</exclude>
 										<exclude>META-INF/*.SF</exclude>
 										<exclude>META-INF/*.DSA</exclude>
 										<exclude>META-INF/*.RSA</exclude>

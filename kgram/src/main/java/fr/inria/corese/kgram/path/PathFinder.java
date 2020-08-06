@@ -21,7 +21,6 @@ import fr.inria.corese.kgram.core.Memory;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.kgram.event.EventManager;
 import fr.inria.corese.kgram.event.ResultListener;
-import fr.inria.corese.kgram.path.Visit.TTable;
 import fr.inria.corese.kgram.tool.EdgeInv;
 import java.util.HashMap;
 
@@ -255,8 +254,7 @@ public class PathFinder {
         index = n;
         targetNode = env.getNode(edge.getNode(other));
         varNode = edge.getEdgeVariable();
-
-        if (f != null) {
+        if (f != null) {           
             if (match(edge, lVar, index)) {
                 filter = f;
                 init(env);
@@ -367,15 +365,18 @@ public class PathFinder {
      * Enumerate path in a parallel thread, return a synchronised buffer Useful
      * if backjump or have a limit in sparql query
      */
-    public Iterable<Mapping> candidate(Node gNode, List<Node> from, Environment mem) {
+    public Iterable<Mapping> candidate(Node gNode, List<Node> from, Environment env) {
         isStop = false;
+        if (mem != null) {
+            mem.setGraphNode(gNode);
+        }
         if (isList) {
-            return candidate2(gNode, from, mem);
+            return candidate2(gNode, from, env);
         }
         this.gNode = gNode;
         this.from = from;
-        this.memory = mem;
-        mstart(mem);
+        this.memory = env;
+        mstart(env);
         // return path enumeration (read the synchronized buffer)
         return mbuffer;
     }
@@ -495,7 +496,8 @@ public class PathFinder {
         // In which case all path relations come from same source 
         Node csource = null;
         if (gNode != null) {
-            csource = memory.getNode(gNode);
+            csource = gNode.isConstant() ? gNode : memory.getNode(gNode);
+            //csource = memory.getNode(gNode);
         }
 
         // the start concept for path
@@ -852,7 +854,7 @@ public class PathFinder {
 
                         if (isNew) {
                             // clean the table of visited nodes as we have a new start node
-                            visit.start();
+                            visit.start(node);
                         }
 
                         // visit start node
@@ -1195,7 +1197,7 @@ public class PathFinder {
         // because it expands to p*/q . p*/q ...
         // and each occurrence of p* must have its own visited 
 
-        TTable save = stack.getVisit().nunset(exp);
+        Visit.VisitedNode save = stack.getVisit().nunset(exp);
         eval(stack, path, start, src);
         stack.getVisit().nset(exp, save);
 
@@ -1218,67 +1220,84 @@ public class PathFinder {
     }
 
     /**
-     * exp+
+     * exp = exp+ ; stack = rest
+     * Distinguish 1. first execution where index(exp+) = 0  and 2. next executions where index(exp+) = 1
+     * 1.    stack := (exp, exp+, rest) ; eval(stack)
+     * 2. a) stack = (rest) ; eval(stack) b) stack := (exp, exp+, rest) ; eval(stack)
+     * 
+     * In addition there are two cases whether start node is bound or not
+     * If start is bound, OK
+     * If start is not bound, it will be bound by case LABEL: above
+     * ?x p+ ?y 
+     * When index(p+) = 0, start is not bound, execute(p/p+). When we come back to p+ in the stack, 
      */
     void plus(Regex exp, Record stack, Path path, Node start, Node src) {
-
+        Visit visit = stack.getVisit();
         // start is the first node of exp+
-        boolean isFirst = stack.getVisit().nfirst(exp);
+        boolean isFirst = visit.nfirst(exp);
+        
+        if (visit.count(exp) == 0) {
+            // case 1: first execution of exp+
 
-        if (stack.getVisit().count(exp) == 0) {
+            // declare exp such that when start node changes (in case LABEL:)
+            // the visitedNode table of exp be cleared by visit.start()
+            visit.declare(exp);
 
-            if (!isCountPath) { // checkLoop ||
-                // std sparql
-                if (stack.getVisit().nloop(exp, start)) {
-                    stack.push(exp);
-                    return;
-                }
-            }
-
-            // first step
+            // push exp+ again in stack to loop later
             stack.push(exp);
-
-            stack.getVisit().count(exp, +1);
+            // assign index=1 to exp+, hence exp+ will be executed by case 2 below
+            visit.count(exp, +1);
+            // push exp to execute it now
             stack.push(exp.getArg(0));
+            // execute exp ; stack = (exp, exp+, rest) ; exp+ will be executed by case 2 below
             eval(stack, path, start, src);
             stack.pop();
-            stack.getVisit().count(exp, -1);
+            visit.count(exp, -1);
 
-            if (!isCountPath) { // checkLoop ||
-                stack.getVisit().nremove(exp, start);
+            if (!isCountPath) { 
+                // std sparql
+                // leave exp+
+                visit.nremove(exp, start);
             }
 
         } else {
-            if (stack.getVisit().nloop(exp, start)) {
-                //trace("** Loop: " + start);
+            // case 2:
+            // next execution of exp+ after first one
+            if (visit.nloop(exp, start)) {
                 stack.push(exp);
                 return;
             }
+            // we have executed exp at least once
+            // exp = exp+ ; stack = (rest)
+            // (1) evaluate the stack if any and store result
+            // use case: eval rest in: exp+ / rest
+            // switch off exp+ visitedNode table in case: (exp1+/exp2+)+
+            // exp1 would be ready to start "again" with "new" visitedNode table
+            Visit.VisitedNode save = visit.nunset(exp);
+            visit.set(exp, 0);
 
-
-            // (1) leave
-            TTable save = stack.getVisit().nunset(exp);
-            stack.getVisit().set(exp, 0);
+            // eval rest
             eval(stack, path, start, src);
-            stack.getVisit().set(exp, 1);
-            stack.getVisit().nset(exp, save);
-
-            // (1) leave
-            //eval(stack, path, start, src);
-
-            // (2) continue
+            
+            // switch on exp+ index and visitedNode table
+            visit.set(exp, 1);
+            visit.nset(exp, save);
+            
+            // (2) loop again
+            // push exp+
             stack.push(exp);
-
+            // push exp
             stack.push(exp.getArg(0));
+            // stack = (exp, exp+, rest) ; eval(stack)
             eval(stack, path, start, src);
             stack.pop();
 
-            //count
-            stack.getVisit().nremove(exp, start);
+            //
+            visit.nremove(exp, start);
         }
 
         if (isFirst) {
-            stack.getVisit().nunset(exp);
+            //visit.nunset(exp); // @todo
         }
 
     }

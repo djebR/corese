@@ -8,6 +8,7 @@ module fr.inria.corese.corese_core {
     requires jsonld.java;
     requires semargl.core;
     requires sesame.model;
+    //requires fr.inria.corese.arp;
     requires arp;
     requires java.logging;
     requires java.sql;

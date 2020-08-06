@@ -1,7 +1,9 @@
 package fr.inria.corese.sparql.compiler.java;
 
 import fr.inria.corese.sparql.api.IDatatype;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.sparql.datatype.RDF;
+import fr.inria.corese.sparql.triple.parser.Variable;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -9,6 +11,8 @@ import java.util.TreeMap;
 
 /**
  *
+ * Generate IDatatype constant and IDatatype variable.
+ * 
  * @author Olivier Corby, Wimmics INRIA I3S, 2017
  *
  */
@@ -17,24 +21,50 @@ public class Datatype {
     static final String VAR = "_cst_";
     int count = 0;
 
-    StringBuilder sb;
+    StringBuilder sb, sbvar;
     TreeData cache;
     HashMap<String, String> strCache;
+    HashMap<String, String> varCache;
 
     Datatype() {
         sb = new StringBuilder();
+        sbvar = new StringBuilder();
         cache = new TreeData();
         strCache = new HashMap<String, String>();
+        varCache = new HashMap<String, String>();
     }
     
     StringBuilder getStringBuilder(){
         return sb;
     }
+    
+    StringBuilder getStringBuilderVar(){
+        return sbvar;
+    }
+    
+    /**
+     * Declare Java global variable for LDScript global variable
+     */
+    void declare(Variable var) {
+        String name = var.getSimpleName();
+        if (!varCache.containsKey(name)) {
+            varCache.put(name, name);
+            sbvar.append("IDatatype ").append(name).append(";").append(NL);
+        }
+    }
 
+    /**
+     * Return  IDatatype constant in Java syntax
+     * String generates a constant definition in the header
+     */
     String toJava(IDatatype dt) {
         switch (dt.getCode()) {
+            
             case IDatatype.URI:
                 return resource(dt);
+            case IDatatype.STRING:
+                return string(dt);
+                
             case IDatatype.INTEGER:
                 return genericInteger(dt);
             case IDatatype.DOUBLE:
@@ -45,8 +75,7 @@ public class Datatype {
                 return newInstance(dt.floatValue());
             case IDatatype.BOOLEAN:
                 return newInstance(dt.booleanValue());
-            case IDatatype.STRING:
-                return string(dt);
+            
             case IDatatype.LITERAL:
             case IDatatype.DATE:
             case IDatatype.DATETIME:
@@ -87,10 +116,6 @@ public class Datatype {
         return String.format("DatatypeMap.newList(%s)", sb);
     }
     
-    String getVariable(){
-        return VAR + count++;
-    }
-    
     StringBuilder append(String val){
         return sb.append(val);
     }
@@ -100,7 +125,7 @@ public class Datatype {
     }
     
     /**
-     * Generate a global variable for an URI, return the variable
+     * Generate a constant definition for an URI, return the constant
      */
     String resource(IDatatype dt){
         String var = cache.get(dt);
@@ -111,14 +136,26 @@ public class Datatype {
     }
     
     /**
-     * Generate a global variable for a xsd:string, return the variable
+     * Generate a constant definition for a xsd:string, return the constant
      */
     String string(IDatatype dt){
         String var = cache.get(dt);
         if (var == null){
-            var = getVariable(dt, newInstance(dt.stringValue()));
+            var = getVariable(dt, newInstance(clean(dt.stringValue())));
         }
         return var;
+    }
+    
+    String clean(String str) {
+        return str.replace("\\$", "\\\\$").replace("\\\n", " ");
+    }
+    
+    String stringasdt(String str) {
+        return string(DatatypeMap.newInstance(str));
+    }
+    
+    String variable(String str) {
+        return string(DatatypeMap.newInstance(str));
     }
      
      /**
@@ -134,6 +171,11 @@ public class Datatype {
         }
         return var;
     }
+    
+    String getVariable(){
+        return VAR + count++;
+    }
+    
     
     /**
      * 

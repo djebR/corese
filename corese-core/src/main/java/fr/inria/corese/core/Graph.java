@@ -48,7 +48,10 @@ import fr.inria.corese.core.api.ValueResolver;
 import fr.inria.corese.core.query.QueryCheck;
 import java.util.Map;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.GRAPH;
 import fr.inria.corese.sparql.triple.parser.NSManager;
+import java.util.Collection;
 
 /**
  * Graph Manager Edges are stored in an index An index is a table: predicate ->
@@ -66,6 +69,20 @@ public class Graph extends GraphObject implements
         Iterable<Edge>,
         fr.inria.corese.sparql.api.Graph, 
         Graphable, TripleStore {
+
+    /**
+     * @return the allGraphNode
+     */
+    public boolean isAllGraphNode() {
+        return allGraphNode;
+    }
+
+    /**
+     * @param allGraphNode the allGraphNode to set
+     */
+    public void setAllGraphNode(boolean allGraphNode) {
+        this.allGraphNode = allGraphNode;
+    }
   
     static {
 	    Corese.init();
@@ -97,6 +114,9 @@ public class Graph extends GraphObject implements
     static final int TAGINDEX = 2;    
     static boolean byIndexDefault = true;
     public static boolean METADATA_DEFAULT = false;
+    public static boolean EDGE_METADATA_DEFAULT = false;
+    // same triple have same name in named graphs
+    public static boolean TRIPLE_UNIQUE_NAME = true;
     
     private static final String[] PREDEFINED = {
         Entailment.DEFAULT, Entailment.ENTAIL, Entailment.RULE,
@@ -199,6 +219,8 @@ public class Graph extends GraphObject implements
     private boolean hasTag = false;
     private boolean isTuple = false;
     private boolean metadata = METADATA_DEFAULT;
+    private boolean edgeMetadata = EDGE_METADATA_DEFAULT;
+    private boolean allGraphNode = false;
     public static final String SYSTEM = ExpType.KGRAM + "system";
     public int count = 0;
 
@@ -440,8 +462,8 @@ public class Graph extends GraphObject implements
     }
 
     @Override
-    public int pointerType() {
-        return GRAPH_POINTER;
+    public PointerType pointerType() {
+        return GRAPH;
     }
 
     /**
@@ -838,15 +860,23 @@ public class Graph extends GraphObject implements
     }
 
     public Lock readLock() {
-        return lock.readLock();
+        return getLock().readLock();
     }
 
     public Lock writeLock() {
-        return lock.writeLock();
+        return getLock().writeLock();
     }
 
     public ReentrantReadWriteLock getLock() {
         return lock;
+    }
+    
+    public boolean isReadLocked() {
+        return getLock().getReadLockCount() > 0 ;
+    }
+    
+    public boolean isLocked() {
+        return isReadLocked() || getLock().isWriteLocked();
     }
 
     void clearDistance() {
@@ -1079,6 +1109,18 @@ public class Graph extends GraphObject implements
     public boolean isVerbose() {
         return getEventManager().isVerbose(); 
     }
+    
+    public boolean isEdgeMetadata() {
+        return edgeMetadata;
+    }
+    
+    public void setEdgeMetadata(boolean b) {
+        edgeMetadata = b;
+    }
+    
+    public static void setEdgeMetadataDefault(boolean b) {
+        EDGE_METADATA_DEFAULT = b;
+    }
    
     /**
      * send e.g. by kgram eval() before every query execution restore
@@ -1088,7 +1130,6 @@ public class Graph extends GraphObject implements
      * automatically run, use re.process()
      */
     public synchronized void init() {
-        getEventManager().start(Event.InitGraph);
         if (isIndex()) {                    
             index();            
         }
@@ -1178,6 +1219,12 @@ public class Graph extends GraphObject implements
         return table;
     }
     
+    public void finishUpdate() {
+        getIndex().finishUpdate();
+    }
+    
+     
+    
     /**
      * Graph updated, nodeManager content is obsolete
      */
@@ -1194,7 +1241,7 @@ public class Graph extends GraphObject implements
     }
     
    
-    void clearNodeManager() {
+    public void clearNodeManager() {
         for (Index id : getIndexList()) {
             id.getNodeManager().desactivate();
         }
@@ -1226,12 +1273,16 @@ public class Graph extends GraphObject implements
      */
     public void index() {
         if (size() > 0) {
-            getEventManager().start(Event.IndexGraph);
-            for (Index ei : getIndexList()) {
-                ei.index();
-            }
+            getEventManager().start(Event.IndexGraph);            
+            basicIndex(); 
             getEventManager().finish(Event.IndexGraph);
             setIndex(false);
+        }
+    }
+    
+    void basicIndex() {
+        for (Index ei : getIndexList()) {
+            ei.index();
         }
     }
     
@@ -1242,7 +1293,7 @@ public class Graph extends GraphObject implements
         }
     }
     
-    void cleanIndex() {
+    public void cleanIndex() {
         for (Index ei : getIndexList()) {
             if (ei.getIndex() != 0) {
                 ei.clean();
@@ -1506,6 +1557,15 @@ public class Graph extends GraphObject implements
     public Edge createDelete(Node source, Node subject, Node predicate, Node value) {
         return fac.createDelete(source, subject, predicate, value);
     }
+    
+    public Edge createDelete(IDatatype source, IDatatype subject, IDatatype predicate, IDatatype value) {
+        Node graph = (source==null)?null:getCreateNode(source);
+        return fac.createDelete(graph, getCreateNode(subject), getCreateNode(predicate), getCreateNode(value));
+    }
+    
+    Node getCreateNode(IDatatype dt) {
+        return getNode(dt, true, false);
+    }
 
     public Edge create(Node source, Node predicate, List<Node> list) {
         return fac.create(source, predicate, list);
@@ -1607,9 +1667,18 @@ public class Graph extends GraphObject implements
      * it exists
      *
      */
+    @Override
     public Node getNode(Node node) {
         IDatatype dt = getDatatypeValue(node);
         return getNode(dt, false, false);
+    }
+    
+    @Override
+    public Node getVertex(Node node) {
+        if (node.getDatatypeValue().isURI()) {
+            return getNode(node.getLabel());
+        }
+        return getNode(node);      
     }
 
     public Node createNode(IDatatype dt) {
@@ -1784,23 +1853,13 @@ public class Graph extends GraphObject implements
     }
 
     Node basicAddResource(String label) {
-        String key = getID(label);
-        Node node = getNode(key, label);
-        if (node != null) {
-            return node;
-        }
-        node = getGraphNode(key, label);
-        if (node == null) {
-            node = getPropertyNode(label);
-        }
-        if (node == null){
-            node = getSystemNode(label);
-        }
+        Node node = getResource(label);
         if (node != null) {
             add(getDatatypeValue(node), node);
             return node;
         }
         IDatatype dt = DatatypeMap.createResource(label);
+        String key = getID(label);
         node = createNode(key, dt);
         add(dt, node);
         return node;
@@ -1934,6 +1993,7 @@ public class Graph extends GraphObject implements
         return property.get(label);
     }
 
+    @Override
     public Node getPropertyNode(Node p) {
         return property.get(p.getLabel());
     }
@@ -2384,6 +2444,21 @@ public class Graph extends GraphObject implements
         return graph.values();
     }
     
+    public List<Node> getGraphNodesExtern() {
+        return new ArrayList<>(0);
+    }
+    
+    public Iterable<Node> getGraphNodesAll() {
+        ArrayList<Node> list = new ArrayList<>();
+        for (Node node : getGraphNodes()) {
+            list.add(node);
+        }
+        for (Node node : getGraphNodesExtern()) {
+            list.add(node);
+        }
+        return list;
+    }
+
     public int nbGraphNodes(){
         return graph.size();
     }
@@ -2702,12 +2777,13 @@ public class Graph extends GraphObject implements
 
         if (edge.getGraph() == null) {
             res = deleteAll(edge);
-        } else {
+        } 
+        else {
             Edge ee = basicDelete(edge);
             if (ee != null) {
-                res = new ArrayList<Edge>();
+                res = new ArrayList<>();
                 res.add(ee);
-                getEventManager().process(Event.Delete, ee);
+                getEventManager().process(Event.Delete, ee, edge);
             }
         }
 
@@ -2728,11 +2804,10 @@ public class Graph extends GraphObject implements
                 Edge ent = basicDelete(edge);
                 if (ent != null) {
                     if (res == null) {
-                        res = new ArrayList<Edge>();
+                        res = new ArrayList<>();
                     }
                     res.add(ent);
-                    //setDelete(true);
-                    getEventManager().process(Event.Delete, ent);
+                    getEventManager().process(Event.Delete, ent, edge);
                 }
             }
         }
@@ -2756,8 +2831,6 @@ public class Graph extends GraphObject implements
                 logger.debug("delete: " + ie.getIndex() + " " + ent);
             }
             if (ent != null) {
-                //setDelete(true);
-                //getEventManager().process(Event.Delete, ent);
                 res = ent;
             }
         }
@@ -2769,20 +2842,24 @@ public class Graph extends GraphObject implements
      */
     List<Edge> deleteAll(Edge edge) {
         ArrayList<Edge> res = null;
-
+        Node graphName = null;
         for (Node graph : getGraphNodes()) {
-            fac.setGraph(edge, graph);
+            //fac.setGraph(edge, graph);
+            edge.setGraph(graph);
             Edge ent = basicDelete(edge);
             if (ent != null) {
                 if (res == null) {
-                    res = new ArrayList<Edge>();
+                    res = new ArrayList<>();
                 }
                 res.add(ent);
+                graphName = ent.getGraph();
                 //setDelete(true);
-                getEventManager().process(Event.Delete, ent);
+                getEventManager().process(Event.Delete, ent, edge);
             }
         }
-
+        if (graphName != null) {
+            edge.setGraph(graphName);
+        }
         return res;
     }
 
@@ -3006,10 +3083,16 @@ public class Graph extends GraphObject implements
     }
     
     public Graph empty(){
-        Graph g = Graph.create();
+        Graph g = create();
         g.inherit(this);
         return g;
     }
+    
+    public Graph construct() {
+        Graph g = create();
+        g.setEdgeMetadata(isEdgeMetadata());
+        return g;
+    } 
     
     void inherit(Graph g){
         setSkolem(g.isSkolem());
@@ -3047,6 +3130,12 @@ public class Graph extends GraphObject implements
         Edge e = fac.create(createNode(source), createNode(subject), createNode(predicate), createNode(value));
         Edge ee = addEdgeWithNode(e);
         return ee;
+    }
+    
+    public List<Edge> delete(IDatatype source, IDatatype subject, IDatatype predicate, IDatatype value) {
+        Edge e = createDelete(source, subject, predicate, value);
+        List<Edge> list = delete(e);
+        return list;
     }
     /**
      * Add Edge, not add nodes
@@ -3152,6 +3241,10 @@ public class Graph extends GraphObject implements
 
     public Node addBlank() {
         return addBlank(newBlankID());
+    }
+    
+    public Node addTripleName() {
+        return addBlank();
     }
 
     public Node addLiteral(String label, String datatype, String lang) {
@@ -3322,7 +3415,14 @@ public class Graph extends GraphObject implements
     public boolean check(Query q) {
         return new QueryCheck(this).check(q);
     }
-
+    
+    // overloaded by GraphStore
+    public void shareNamedGraph(Graph g) {         
+    }
+    
+    public Collection<String> getNames(){
+        return new ArrayList<>(0);
+    }
     
     public Graph getNamedGraph(String name) {
         return null;
@@ -3345,6 +3445,10 @@ public class Graph extends GraphObject implements
      */
     public boolean isMetadata() {
         return metadata;
+    }
+    
+    public boolean isMetadataNode() {
+        return isEdgeMetadata() || isMetadata();
     }
 
     /**

@@ -161,8 +161,8 @@ public class Constant extends Atom {
     }
 
     @Override
-    public void toJava(JavaCompiler jc) {
-        jc.toJava(this);
+    public void toJava(JavaCompiler jc, boolean arg) {
+        jc.toJava(this, arg);
     }
     
     public static void setString(boolean b) {
@@ -339,6 +339,14 @@ public class Constant extends Atom {
         return cst;
     }
     
+    public static Constant createList(Constant cst) {
+        IDatatype dt = cst.getDatatypeValue();
+        IDatatype list = DatatypeMap.newList(dt);
+        Constant res = Constant.create(list);
+        return res;
+    }
+    
+    @Override
      public Constant duplicate() {
         Constant cst;
         if (isLiteral()) {
@@ -453,6 +461,12 @@ public class Constant extends Atom {
     public IDatatype getValue() {
         return dt;
     }
+    
+//    @Override
+//    IDatatype getExpressionDatatypeValue() {
+//        //return DatatypeMap.createObject(this);
+//        return getDatatypeValue();
+//    }
 
     @Override
     public void visit(ExpressionVisitor v) {

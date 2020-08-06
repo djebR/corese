@@ -9,14 +9,14 @@ import java.util.List;
  */
 public class RDFList extends And {
 
-    Expression first;
-    List<Expression> list;
+    Atom first;
+    List<Atom> list;
 
     
     RDFList(){       
     }
     
-    RDFList(Expression f, List<Expression> l){
+    RDFList(Atom f, List<Atom> l){
         first = f;
         list = l;
     }
@@ -25,23 +25,24 @@ public class RDFList extends And {
         return new RDFList();
     }
 
+    @Override
     public boolean isRDFList() {
         return true;
     }
 
-    public Expression head() {
+    public Atom head() {
         return first;
     }
 
-    void setHead(Expression e) {
+    void setHead(Atom e) {
         first = e;
     }
 
-    void setList(List<Expression> l) {
+    void setList(List<Atom> l) {
         list = l;
     }
 
-    public List<Expression> getList() {
+    public List<Atom> getList() {
         return list;
     }
 

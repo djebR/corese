@@ -13,16 +13,17 @@ template st:value {
    ; separator = concat(" ;", st:nl()) 
 }
 where {
-  ?in ?p ?y 
+  triple(?in ?p ?y |?l|)
+  filter (! isURI(?in) || ?l = 0)
   
   bind (
-    isBlank(?y) 
-    && not exists { ?y rdf:first ?e }
-    && ( 
-        (st:get(st:allgraph, true) && exists { ?x ?q ?y . filter(?in != ?x) } )
-        || exists { ?y ?q ?y } 
-        || ?in = ?y
-       )
+    isBlank(?y) && not exists { ?y rdf:first ?e }
+    && (
+    st:get(st:reference, true)
+    || (st:get(st:allgraph, true) && exists { ?x ?q ?y . filter(?in != ?x) } )
+    || exists { ?y ?q ?y } 
+    || ?in = ?y
+    ) 
   as ?refer)      
 }
 order by if (?p = rdf:type, 0, 1) ?p ?y

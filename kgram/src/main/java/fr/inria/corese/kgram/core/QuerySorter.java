@@ -231,8 +231,8 @@ public class QuerySorter implements ExpType {
     
     // used by Eval subEval() bind()
     void union(Exp exp){
-        exp.first().setNodeList(exp.first().getInScopeNodes());
-        exp.rest().setNodeList(exp.rest().getInScopeNodes());
+        exp.first().setNodeList(exp.first().getAllInScopeNodes());
+        exp.rest().setNodeList(exp.rest().getAllInScopeNodes());
     }
     
     void minus(Exp exp){
@@ -336,7 +336,7 @@ public class QuerySorter implements ExpType {
                 expVar.clear(size);
 
                 filterVar = ff.getVariables();
-                boolean isExist = ff.getExp().isExist();
+                boolean isExist = ff.getExp().isRecExist();
 
                 for (int je = 0; je < exp.size(); je++) {
                     // search exp e after which filter f is bound
@@ -371,7 +371,6 @@ public class QuerySorter implements ExpType {
                 }
             }
         }
-
         expVar.clear(size);
 
     }

@@ -11,6 +11,8 @@ import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Filter;
 import fr.inria.corese.kgram.api.core.Node;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.STATEMENT;
 import fr.inria.corese.kgram.api.core.Regex;
 import fr.inria.corese.kgram.api.query.Producer;
 import java.util.HashMap;
@@ -969,6 +971,7 @@ public class Exp extends PointerObject
         return node;
     }
 
+    @Override
     public Node getNode() {
         return node;
     }
@@ -1352,7 +1355,10 @@ public class Exp extends PointerObject
                 break;
 
             case BIND:
-                share(getNode(), filterVar, expVar);
+                // bind may not bind the variable (in case of error) 
+                // hence variable cannot be considered as bound for filter
+                //share(getNode(), filterVar, expVar);
+                break;
 
             case EDGE:
             case PATH:
@@ -1411,102 +1417,116 @@ public class Exp extends PointerObject
      * inSubScope = true : collect nodes of left of optional and surely bound by union
      * optional = true :  we are inside an optional
      */
-    void getNodes(List<Node> nodeList, List<Node> selectList, List<Node> existList, 
-            boolean inSubScope, boolean optional, boolean blank) {
+    void getNodes(ExpHandler h) {
 
         switch (type()) {
 
             case FILTER:
                 // get exists {} nodes
                 // draft
-                getExistNodes(getFilter().getExp(), existList);
+                getExistNodes(getFilter().getExp(), h.getExistNodeList());
                 break;
 
             case NODE:
-                add(nodeList, getNode(), blank);
+                h.add(getNode());
                 break;
 
             case EDGE:
             case PATH:
+                Edge edge = getEdge();
+                h.add(edge.getNode(0));
+                if (edge.getEdgeVariable() != null) {
+                    h.add(edge.getEdgeVariable());
+                }
+                h.add(edge.getNode(1));
+                
+                for (int i = 2; i < edge.nbNode(); i++) {
+                    h.add(edge.getNode(i));
+                }
+                break;
+                
             case XPATH:
             case EVAL:
                 for (int i = 0; i < nbNode(); i++) {
                     Node node = getNode(i);
-                    add(nodeList, node, blank);
+                    h.add(node);
                 }
                 break;
 
             case ACCEPT:
                 //use case: join() check connection, need all variables
-                add(nodeList, getNode());
+                h.add(getNode());
                 break;
 
             case VALUES:
                 for (Node var : getNodeList()) {
-                    add(nodeList, var);
+                    h.add(var);
                 }
                 break;
 
             case MINUS:
                 // second argument does not bind anything: skip it
                 if (first() != null) {
-                    first().getNodes(nodeList, selectList, existList, inSubScope, optional, blank);
+                    first().getNodes(h);
                 }
                 break;
                 
             case OPTIONAL:
-                first().getNodes(nodeList, selectList, existList, inSubScope, true, blank);
-                if (! inSubScope){               
-                    rest().getNodes(nodeList, selectList, existList, inSubScope, true, blank);   
+                boolean b = h.isOptional();
+                first().getNodes(h.setOptional(true));
+                if (! h.isInSubScope()){               
+                    rest().getNodes(h);   
                 }
+                h.setOptional(b);
                 break;
                 
             case GRAPH: 
-                add(nodeList, getGraphName(), blank);
+                h.add(getGraphName());
                 if (size() > 1) {
-                    rest().getNodes(nodeList, selectList, existList, inSubScope, optional, blank);
+                    rest().getNodes(h);
                 }
                 break;
                 
             case UNION:
-                if (inSubScope) {
-                    // in-subscope record nodes that are surely bound
-                    // record nodes that are bound in both branches of union
-                    List<Node> left  = first().getInScopeNodes();
-                    List<Node> right = rest().getInScopeNodes();
+                if (h.isInSubScope()) {
+                    // in-subscope record nodes that are bound in both branches of union
+                    List<Node> left  = first().getTheNodes(h.copy());
+                    List<Node> right =  rest().getTheNodes(h.copy());
                     for (Node node : left) {
                         if (right.contains(node)) {
-                            add(nodeList, node);
+                            h.add(node);
                         }
                     }
                 }
                 else {
                    for (Exp ee : this) {
-                       ee.getNodes(nodeList, selectList, existList, inSubScope, optional, blank);
+                       ee.getNodes(h);
                    }
                 }
                 break;
                 
             case BIND:
-                //add(selectNodeList, getNode());
-                if (getNodeList() == null) {
-                    add(nodeList, getNode());
-                }
-                else for (Node node : getNodeList()) {
-                        add(nodeList, node);
+                if (h.isBind()) {
+                    if (getNodeList() == null) {
+                        h.add(getNode());
+                    } else {
+                        for (Node node : getNodeList()) {
+                            h.add(node);
+                        }
                     }
+                }
                 
                 break;
                            
             case QUERY: 
-                queryNodeList(selectList, inSubScope);
+                queryNodeList(h.getSelectNodeList(), h.isInSubScope());
                 break;
                
             default:
                 // BGP, service, union, named graph pattern
                 for (Exp ee : this) {
-                    ee.getNodes(nodeList, selectList, existList, inSubScope, optional, blank);
-                    if (inSubScope && (ee.isMinus() || ee.isOptional() || ee.isUnion() || ee.isGraph())) {
+                    ee.getNodes(h);
+                    if (h.isInSubScopeLimited() && (ee.isMinus() || ee.isOptional() || ee.isUnion() || ee.isGraph())) {
                         // skip statements after optional/minus/union for in-subscope nodes
                         break;
                     }                    
@@ -1515,6 +1535,7 @@ public class Exp extends PointerObject
 
     }
     
+  
     void queryNodeList(List<Node> selectList, boolean inSubScope) {
         List<Node> subSelectList = getQuery().getSelectNodeList();
         if (inSubScope) {
@@ -1548,7 +1569,7 @@ public class Exp extends PointerObject
 
             case ExprType.EXIST:
                 Exp pat = getPattern(exp);
-                List<Node> lNode = pat.getNodes(true, false, false);
+                List<Node> lNode = pat.getTheNodes(handler(true, false, true, false));
                 for (Node node : lNode) {
                     add(lExistNode, node);
                 }
@@ -1567,7 +1588,7 @@ public class Exp extends PointerObject
      * minus nodes
      */
     public List<Node> getNodes() {
-        List<Node> list = getNodes(false, false, false);
+        List<Node> list = getTheNodes(handler(false, false, true, false));
         return list;
     }
     
@@ -1577,55 +1598,68 @@ public class Exp extends PointerObject
         }
         return getInScopeNodeList();
     }
+   
+    public List<Node> getRecordInScopeNodesForService() {
+        return getRecordInScopeNodes(false);
+    }
 
+    public List<Node> getRecordInScopeNodes(boolean bind) {
+        if (getInScopeNodeList() == null) {
+            setInScopeNodeList(getInScopeNodes(bind));
+        }
+        return getInScopeNodeList();
+    }
     
     /**
      * in-scope nodes minus nodes in right optional (as well as in subquery right optional)
      * @return 
      */
     public List<Node> getInScopeNodes() {
-        List<Node> list = getNodes(false, true, false);
-        return list;
+        return getInScopeNodes(true);
+    }
+    
+    /**
+     * 
+     */
+    public List<Node> getAllInScopeNodes() {
+        return getTheNodes(handler(false, true, true, false).setAll(true));
+    }
+       
+    List<Node> getInScopeNodes(boolean bind) {
+        return getTheNodes(handler(false, true, bind, false));
     }
 
     public List<Node> getAllNodes() {
-        List<Node> list = getNodes(false, false, true);
-        return list;
+        return getTheNodes(handler(false, false, true, true));
     }
-
-    /**
-     * 
-     * @param exist
-     * @param inSubScope: in optional, keep variables of left argument only
-     * @param blank
-     * @return 
-     */
-    public List<Node> getNodes(boolean exist, boolean inSubScope, boolean blank) {
-        List<Node> nodeList         = new ArrayList<Node>();
-        List<Node> selectNodeList   = new ArrayList<Node>();
-        List<Node> existNodeList    = new ArrayList<Node>();
-
-        getNodes(nodeList, selectNodeList, existNodeList, inSubScope, false, blank);
-
+    
+    ExpHandler handler(boolean exist, boolean inSubScope, boolean bind, boolean blank) {
+        return new ExpHandler(exist, inSubScope, bind, blank);
+    }
+   
+    
+    public List<Node> getTheNodes(ExpHandler h){
+        getNodes(h);
         // add select nodes that are not in lNode
-        for (Node selectNode : selectNodeList) {
-            if (!nodeList.contains(selectNode)) {                                                 
-                nodeList.add(overloadSelectNodeByExistNode(existNodeList, selectNode));
+        for (Node selectNode : h.getSelectNodeList()) {
+            if (!h.getNodeList().contains(selectNode)) {                                                 
+                h.getNodeList().add(overloadSelectNodeByExistNode(h.getExistNodeList(), selectNode));
             }
         }
 
-        if (exist) {
+        if (h.isExist()) {
             // collect exists {} nodes
-            for (Node existNode : existNodeList) {
-                if (!nodeList.contains(existNode)) {
-                    nodeList.add(existNode);
+            for (Node existNode : h.getExistNodeList()) {
+                if (!h.getNodeList().contains(existNode)) {
+                    h.getNodeList().add(existNode);
                 }
             }
         }
         
-        return nodeList;
+        return h.getNodeList();
     }
     
+  
     /**
     * use case: 
     * select * where { 
@@ -2117,14 +2151,14 @@ public class Exp extends PointerObject
     public void optional() {
         Exp p = Exp.create(BGP);
         Exp rest = rest();
-        for (Exp exp : rest) {            
+        for (Exp exp : rest) { 
             if (exp.isFilter() && ! rest.simpleBind(exp.getFilter())) {
                 p.add(exp);
                 exp.setPostpone(true);
             } 
             else if (exp.isOptional() || exp.isMinus()) {
                 Exp first = exp.first();                
-                for (Exp e : first) {                    
+                for (Exp e : first) {   
                     if (e.isFilter() && ! first.simpleBind(e.getFilter())) {
                         p.add(e);
                         e.setPostpone(true);
@@ -2166,10 +2200,10 @@ public class Exp extends PointerObject
                     exp.getEdgeVariables(list);
                     break;
                 case BIND: 
-                    getBindVariables(list);
+                    exp.getBindVariables(list);
                     break;
                 case VALUES:
-                    getValuesVariables(list);
+                    exp.getValuesVariables(list);
                     break;
             }
         }
@@ -2217,4 +2251,28 @@ public class Exp extends PointerObject
     public void setDebug(boolean b) {
         isDebug = b;
     }
+    
+    @Override
+    public PointerType pointerType(){
+        return STATEMENT;
+    }
+    
+     @Override
+    public String getDatatypeLabel() {
+        return String.format("[Statement]");
+    }
+    
+    @Override
+    public Exp getStatement() {
+        return this;
+    }
+    
+    @Override
+    public Object getValue(String var, int n) {
+        if (n < size()) {
+            return get(n);
+        }
+        return null;
+    }
+    
 }

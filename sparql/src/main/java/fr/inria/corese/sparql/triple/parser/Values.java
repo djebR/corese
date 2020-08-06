@@ -15,7 +15,7 @@ public class Values extends Exp {
     private List<Variable> lvar;
     private List<List<Constant>> lval;
     private Expression exp;
-    Exp bind;
+    Binding bind;
     private boolean moved = false;
 
     Values(List<Variable> var, List<List<Constant>> lval) {
@@ -112,11 +112,15 @@ public class Values extends Exp {
         return sb;
     }
 
-    @Override
     void getVariables(List<Variable> list) {
         for (Variable var : getVarList()) {
             add(var, list);
         }
+    }
+    
+    @Override
+    void getVariables(VariableScope sort, List<Variable> list) {
+        getVariables(list);
     }
 
     @Override
@@ -126,6 +130,12 @@ public class Values extends Exp {
 
     public void setVariables(List<Variable> lvar) {
         this.lvar = lvar;
+    }
+    
+    public void setVariable(Variable var) {
+        ArrayList<Variable> l = new ArrayList<>();
+        l.add(var);
+        setVariables(l);
     }
    
     public List<Variable> getVarList() {
@@ -194,14 +204,14 @@ public class Values extends Exp {
     /**
      * @return the bind
      */
-    public Exp getBind() {
+    public Binding getBind() {
         return bind;
     }
 
     /**
      * @param bind the bind to set
      */
-    public void setBind(Exp bind) {
+    public void setBind(Binding bind) {
         this.bind = bind;
     }
 

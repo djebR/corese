@@ -33,6 +33,9 @@ import fr.inria.corese.core.Graph;
 import fr.inria.corese.core.producer.DataProducer;
 import fr.inria.corese.core.Index;
 import fr.inria.corese.core.util.ValueCache;
+import fr.inria.corese.kgram.api.core.DatatypeValueFactory;
+import fr.inria.corese.sparql.triple.parser.ASTQuery;
+import fr.inria.corese.sparql.triple.parser.AccessRight;
 import java.util.HashMap;
 
 /**
@@ -156,28 +159,49 @@ public class ProducerImpl implements Producer, IProducerQP {
                 return edge.getNode(i);
         }
     }
+    
+    Node getNode(Node gNode, Environment env) {
+        if (gNode == null) {
+            return null;
+        }
+        return getValue(gNode, env);
+    }
 
     /**
      * Possibly get a Node with a different number datatype than required for D
      * entailment
      */
+    Node getValue(Node qNode, Environment env) {
+        return getValue(qNode, qNode.isVariable()?env.getNode(qNode):null, env);
+    }
+    
     Node getValue(Node qNode, Node node, Environment env) {
-        if (node == null) {
-            if (qNode.isConstant()) {
-                node = getExtNode(qNode);
-            }
-        } else if (isExtern(node, env)) {
+        if (qNode.isConstant()) {
+            node = getExtNode(qNode);
+        }
+        else if (node != null && isExtern(node)) {
             node = getExtNode(node);
         }
         return node;
     }
+    
+//    Node getValue2(Node qNode, Node node, Environment env) {
+//        if (node == null) {
+//            if (qNode.isConstant()) {
+//                node = getExtNode(qNode);
+//            }
+//        } else if (isExtern(node)) {
+//            node = getExtNode(node);
+//        }
+//        return node;
+//    }
 
     Node getExtNode(Node node) {
         return graph.getExtNode(node);
     }
 
     // eg BIND(node as ?x)
-    boolean isExtern(Node node, Environment env) {
+    boolean isExtern(Node node) {
         return node.getIndex() == -1
                 || node.getTripleStore() != graph;
     }
@@ -206,12 +230,20 @@ public class ProducerImpl implements Producer, IProducerQP {
     public Iterable<Edge> getEdges(Node gNode, List<Node> from, Edge edge,
             Environment env) {
 
+//        if (gNode != null) {
+//            if (gNode.isVariable()) {
+//                System.out.println(gNode);
+//                System.out.println(env.getQuery().getAST());
+//            }
+//        }
+        
         Node predicate = getPredicate(edge, env);
         if (predicate == null) {
             return empty;
         }
 
         Query q = env.getQuery();
+        ASTQuery ast = (ASTQuery) q.getAST();
 
         int level = -1;
         int n = 0;
@@ -238,6 +270,8 @@ public class ProducerImpl implements Producer, IProducerQP {
 
         Node focusNode = null, objectNode = null;
         boolean isType = false;
+      
+        //gNode = (gNode != null && gNode.isVariable()) ? env.getNode(gNode) : gNode;
 
         for (Index ei : graph.getIndexList()) {
             // enumerate graph index to get the index i of nodes in edge: 0, 1, GRAPHINDEX
@@ -256,7 +290,7 @@ public class ProducerImpl implements Producer, IProducerQP {
                         // no focus on object node because:
                         // no dichotomy on c:Engineer because we want subsumption                           
                     } else {
-                        Node val = env.getNode(qNode);
+                        Node val = qNode.isVariable() ? env.getNode(qNode) : null;
                         // candidate query node value:
                         focusNode = getValue(qNode, val, env);
 
@@ -286,7 +320,9 @@ public class ProducerImpl implements Producer, IProducerQP {
             // bind (us:graph() as ?g) graph ?g { }         
             it = graph.getDataStore().getDefault(emptyFrom).iterate(predicate, focusNode, n);
         } else {
-            it = getEdges(gNode, getNode(gNode, env), from, predicate, focusNode, objectNode, n);
+            boolean skip = graph.isEdgeMetadata() && edge.nbNode()==2;
+            byte access = ast.getAccess().getWhere();
+            it = getEdges(gNode, getNode(gNode, env), from, predicate, focusNode, objectNode, n, skip, access);
         }
         // in case of local Matcher
         it = localMatch(it, gNode, edge, env);
@@ -298,32 +334,26 @@ public class ProducerImpl implements Producer, IProducerQP {
      * Enumerate candidate edges either from default graph or from named graphs
      */
     public Iterable<Edge> getEdges(Node gNode, Node sNode, List<Node> from,
-            Node predicate, Node focusNode, Node objectNode, int n) {
-        return dataProducer(gNode, from, sNode).iterate(predicate, focusNode, n);
+            Node predicate, Node focusNode, Node objectNode, int n, boolean skip, byte access) {
+        return dataProducer(gNode, from, sNode, skip, access).iterate(predicate, focusNode, n);
+    }
+    
+    Iterable<Edge> getEdges(Node gNode, Node sNode, List<Node> from,
+            Node predicate, Node focusNode, Node objectNode, int n, boolean skip) {
+        return dataProducer(gNode, from, sNode, skip, AccessRight.PUBLIC).iterate(predicate, focusNode, n);
     }
 
-    DataProducer dataProducer(Node gNode, List<Node> from, Node sNode) {
+    DataProducer dataProducer(Node gNode, List<Node> from, Node sNode, boolean skip, byte access) {
+        DataProducer dp;
         if (gNode == null) {
-            return graph.getDataStore().getDefault(from);
+            dp = graph.getDataStore().getDefault(from).setSkipEdgeMetadata(skip);
         } else {
-            return graph.getDataStore().getNamed(from, sNode);
+            dp = graph.getDataStore().getNamed(from, sNode).setSkipEdgeMetadata(skip);
         }
-    }
-
-    // draft test: manage DataStore in a cache
-    Iterable<Edge> getEdges(Edge edge, Node gNode, Node sNode, List<Node> from,
-            Node predicate, Node focusNode, Node objectNode, int n) {
-        DataProducer ds;
-        if (sNode != null) {
-            ds = dataProducer(gNode, from, sNode);
-        } else {
-            ds = cache.get(edge);
-            if (ds == null) {
-                ds = dataProducer(gNode, from, sNode);
-                cache.put(edge, ds);
-            }
+        if (AccessRight.isActive()) {
+            dp.access(access);
         }
-        return ds.iterate(predicate, focusNode, n);
+        return dp;
     }
 
     @Override
@@ -371,15 +401,7 @@ public class ProducerImpl implements Producer, IProducerQP {
             // hence skip MatchIterator
             return it;
         }
-    }
-
-    Node getNode(Node gNode, Environment env) {
-        if (gNode == null) {
-            return null;
-        }
-        return getValue(gNode, env.getNode(gNode), env);
-        //return env.getNode(gNode);
-    }
+    }  
 
     /**
      * Return Node that represents the predicate of the Edge
@@ -447,7 +469,7 @@ public class ProducerImpl implements Producer, IProducerQP {
             }
         }
 
-        if (start != null && isExtern(start, env)) {
+        if (start != null && isExtern(start)) {
             if (!isdb) {
                 start = graph.getNode(start);
             }
@@ -459,7 +481,7 @@ public class ProducerImpl implements Producer, IProducerQP {
             index = (index == 0) ? 1 : 0;
         }
         
-        if (src != null && isExtern(src, env)) {
+        if (src != null && isExtern(src)) {
               src = getExtNode(src);
         }
 
@@ -476,7 +498,7 @@ public class ProducerImpl implements Producer, IProducerQP {
             }
         }
 
-        Iterable<Edge> it = getEdges(gNode, src, from, predicate, start, null, index);
+        Iterable<Edge> it = getEdges(gNode, src, from, predicate, start, null, index, graph.isEdgeMetadata());
 
         return it;
     }
@@ -498,7 +520,7 @@ public class ProducerImpl implements Producer, IProducerQP {
             if (match(exp, predicate)) {
                 // exclude
             } else {
-                Iterable<Edge> it = getEdges(gNode, src, from, predicate, start, null, index);
+                Iterable<Edge> it = getEdges(gNode, src, from, predicate, start, null, index, graph.isEdgeMetadata());
 
                 if (it != null) {
                     meta.next(it);
@@ -549,7 +571,7 @@ public class ProducerImpl implements Producer, IProducerQP {
             return getGraphNodes2(node, from, env);
         }
 
-        return graph.getGraphNodes();
+        return graph.isAllGraphNode() ? graph.getGraphNodesAll() : graph.getGraphNodes();
     }
 
     Iterable<Node> getGraphNodes2(Node node, final List<Node> from,
@@ -558,6 +580,11 @@ public class ProducerImpl implements Producer, IProducerQP {
         List<Node> list = new ArrayList<Node>();
         for (Node nn : from) {
             Node target = graph.getGraphNode(nn.getLabel());
+            if (target == null) {
+                if (graph.getNamedGraph(nn.getLabel()) != null){
+                    target = nn;
+                }
+            }
             if (target != null) {
                 list.add(target);
             }
@@ -651,8 +678,7 @@ public class ProducerImpl implements Producer, IProducerQP {
 
     @Override
     public boolean isGraphNode(Node gNode, List<Node> from, Environment env) {
-        //Node node = env.getNode(gNode);
-        Node node = getValue(gNode, env.getNode(gNode), env );
+        Node node = getValue(gNode, env );
         if (node != null && graph.containsCoreseNode(node)) {
             if (from.isEmpty()) {
                 return true;
@@ -888,5 +914,9 @@ public class ProducerImpl implements Producer, IProducerQP {
     @Override
     public void close() {
 
+    }
+    
+    public DatatypeValueFactory getDatatypeValueFactory() {
+        return DatatypeMap.getDatatypeMap();
     }
 }

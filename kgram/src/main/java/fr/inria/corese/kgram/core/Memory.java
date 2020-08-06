@@ -71,6 +71,8 @@ public class Memory extends PointerObject implements Environment {
     private ApproximateSearchEnv appxSearchEnv;
     boolean debug = DEBUG_DEFAULT;
 
+    public Memory() {}
+    
     public Memory(Matcher m, Evaluator e) {
         match = m;
         eval = e;
@@ -133,7 +135,7 @@ public class Memory extends PointerObject implements Environment {
         return match;
     }
 
-    void setGraphNode(Node g) {
+    public void setGraphNode(Node g) {
         gNode = g;
     }
 
@@ -274,7 +276,6 @@ public class Memory extends PointerObject implements Environment {
             // use case: ?x :p ?z  {select ?z where {?x :q ?z}}
             // ?x in sub query is not the same as ?x in outer query (it is not bound here)
             // only ?z is the same
-
             for (Node subNode : sub.getSelect()) {
                 // get out Node with same label as sub Node :
                 // TODO:  optimize it ? 
@@ -569,17 +570,47 @@ public class Memory extends PointerObject implements Environment {
             n++;
         }
     }
+    
+    boolean pushNodeList(Producer p, Node node, Edge edge, int i) {
+        if (node.isMatchCardinality()) {
+            return pushCardinality(p, node, edge, i);
+        }
+        return pushList(p, node, edge, i);
+    }
+    
+    boolean pushList(Producer p, Node node, Edge edge, int i) {
+        ArrayList<Node> list = new ArrayList<>();
+        for (int j = i; j<edge.nbNode(); j++) {
+            list.add(edge.getNode(j));
+        }
+        Node target = (p == null) ? node : p.getDatatypeValueFactory().nodeList(list);       
+        return push(node, target, i);
+    }
+    
+    boolean pushCardinality(Producer p, Node node, Edge edge, int i) {
+        int n = edge.nbNode() - i;
+        Node target = (p == null) ? node : p.getDatatypeValueFactory().nodeValue(n);       
+        return push(node, target, i);
+    }
 
     /**
      * pop nodes when fail
      */
     boolean push(Edge q, Edge ent, int n) {
+        return push(null, q, ent, n);
+    }
+    
+    boolean push(Producer p, Edge q, Edge ent, int n) {
         boolean success = true;
         int max = q.nbNode();
         for (int i = 0; i < max; i++) {
             Node node = q.getNode(i);
             if (node != null) {
-                success = push(node, ent.getNode(i), n);
+                if (node.isMatchNodeList()) {
+                    success = pushNodeList(p, node, ent, i);
+                } else {
+                    success = push(node, ent.getNode(i), n);
+                }
 
                 if (!success) {
                     // it fail: pop right now
@@ -680,14 +711,16 @@ public class Memory extends PointerObject implements Environment {
     }
 
     public void pop(Node node) {
-        int index = node.getIndex();
-        if (nbNodes[index] > 0) {
-            nbNodes[index]--;
-            if (nbNodes[index] == 0) {
-                nbNode--;
-                nodes[index] = null;
-                qNodes[index] = null;
-                stackIndex[index] = -1;
+        if (node.isVariable()) {
+            int index = node.getIndex();
+            if (nbNodes[index] > 0) {
+                nbNodes[index]--;
+                if (nbNodes[index] == 0) {
+                    nbNode--;
+                    nodes[index] = null;
+                    qNodes[index] = null;
+                    stackIndex[index] = -1;
+                }
             }
         }
     }
@@ -716,7 +749,7 @@ public class Memory extends PointerObject implements Environment {
                 max = stack[n];
             }
         }
-        if (gNode != null) {
+        if (gNode != null && gNode.isVariable()) {
             int n = gNode.getIndex();
             if (stack[n] > max) {
                 max = stack[n];
@@ -981,10 +1014,13 @@ public class Memory extends PointerObject implements Environment {
      */
     @Override
     public Node getNode(Node node) {
+        if (node.isConstant()) {
+            return node;
+        }
         int n = node.getIndex();
         if (n == -1) {
             return null;
-        }
+        }       
         return nodes[n];
     }
 
@@ -1351,6 +1387,10 @@ public class Memory extends PointerObject implements Environment {
             return l.get(n);
         }
         return null;
+    }
+    
+    public static void recordEdge(boolean b) {
+        IS_EDGE = b;
     }
     
 }

@@ -21,11 +21,13 @@ import fr.inria.corese.kgram.api.core.ExpPattern;
 import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
 import java.util.HashMap;
+import java.util.logging.Level;
 
 public class Processor {
 	private static Logger logger = LoggerFactory.getLogger(Processor.class);
 
 	static final String functionPrefix = KeywordPP.CORESE_PREFIX;
+        static final String DOM      = NSManager.DOM;
         static final String EXT      = NSManager.EXT;
         static final String EXT_PREF = NSManager.EXT_PREF + ":";
         static final String SPARQL   = NSManager.SPARQL;       
@@ -38,6 +40,7 @@ public class Processor {
 	public static final String COUNT    = "count";
 	public static final String INLIST   = Term.LIST;
 	public static final String XT_MAP      = EXT+"map";
+	public static final String XT_JSON_OBJECT      = EXT+"jsonobject";
 	public static final String XT_LIST     = EXT+"list";
 	public static final String XT_TOLIST   = EXT+"toList";
 	public static final String XT_IOTA     = EXT+"iota";
@@ -107,6 +110,7 @@ public class Processor {
         public static final String XT_FIRST    = EXT + "first";
         public static final String XT_REST     = EXT + "rest";
         public static final String XT_GET      = EXT + "get";
+        public static final String XT_HAS      = EXT + "has";
         public static final String XT_REMOVE   = EXT + "remove";
         public static final String XT_REMOVE_INDEX = EXT + "removeindex";
         public static final String XT_GEN_REST  = EXT + "grest";
@@ -116,7 +120,7 @@ public class Processor {
         static final String FUN_XT_LAST         = EXT_PREF + "last";       
         static final String FUN_XT_GGET         = EXT_PREF + "gget";
         static final String FUN_XT_GET          = EXT_PREF + "get";
-        private static final String XT_SET      = EXT + "set";
+        public static final String XT_SET      = EXT + "set";
         public static final String XT_CONS      = EXT + "cons";        
         public static final String XT_ADD       = EXT + "add";
         private static final String XT_SWAP     = EXT + "swap";
@@ -133,7 +137,7 @@ public class Processor {
         private static final String XT_CAST     = EXT + "cast";        
         private static final String XT_REJECT   = EXT + "reject";
         private static final String XT_VARIABLES= EXT + "variables";
-        private static final String XT_EDGE     = EXT + "edge";
+        public static final String XT_EDGES     = EXT + "edges";
         private static final String XT_NAME     = EXT + "name";        
         private static final String XT_QUERY    = EXT + "query";
         private static final String XT_AST      = EXT + "ast";
@@ -155,6 +159,10 @@ public class Processor {
         private static final String XT_METHOD   = "method";
         private static final String XT_METHOD_TYPE= EXT + "method";
         private static final String XT_EXISTS   = EXT + "exists";
+        private static final String XT_INSERT   = EXT + "insert";
+        private static final String XT_DELETE   = EXT + "delete";
+        private static final String XT_DEGREE   = EXT + "degree";
+        private static final String XT_MINDEGREE   = EXT + "mindegree";
        
 
 	private static final String PLENGTH = "pathLength";
@@ -323,6 +331,7 @@ public class Processor {
 	static final String PROCESS  = KGRAM + "process";
 	static final String ENV  	 = KGRAM + "env";
 	static final String XT_ENV  	 = EXT + "env";
+	static final String XT_STACK  	 = EXT + "stack";
 	public static final String PATHNODE = KGRAM + "pathNode";
 	static final String SLICE       = KGRAM + "slice";
 	static final String DB          = KGRAM + "db";
@@ -334,13 +343,13 @@ public class Processor {
 	static final String LCASE 	= "lcase";
 	static final String ENDS 	= "strends";
 	static final String STARTS 	= "strstarts";
-	static final String CONTAINS = "contains";
+	static final String CONTAINS    = "contains";
 	static final String ENCODE 	= "encode_for_uri";
-	public static final String CONCAT 	= "concat"; 
+	public static final String CONCAT="concat"; 
 	static final String STRBEFORE 	= "strbefore"; 
 	static final String STRAFTER 	= "strafter"; 
 	static final String STRREPLACE 	= "replace"; 
-	static final String UUID 		= "uuid"; 
+	static final String UUID 	= "uuid"; 
 	static final String STRUUID 	= "struuid"; 
 
 	
@@ -362,7 +371,7 @@ public class Processor {
 	static final String TIMEZONE    = "timezone";
 	static final String TZ 		= "tz";
 
-	static final String MD5 	= "md5";
+	static final String MD5     	= "md5";
 	static final String SHA1 	= "sha1";
 	static final String SHA224 	= "sha224";
 	static final String SHA256	= "sha256";
@@ -386,11 +395,13 @@ public class Processor {
         static final String RQ_GE 	= SPARQL + "ge";
         static final String RQ_GT 	= SPARQL + "gt";
                       
+        static final String XT_VALID_URI= EXT + "validURI";
         static final String XT_LOAD 	= EXT + "load";
         static final String XT_CONTENT 	= EXT + "content";
         public static final String XT_DISPLAY 	= EXT + "display";
         public static final String XT_PRINT 	= EXT + "print";
         static final String XT_PRETTY   = EXT + "pretty";
+        static final String XT_ATTRIBUTES= EXT + "attributes";
         static final String XT_XML      = EXT + "xml";
         static final String XT_RDF      = EXT + "rdf";
         static final String XT_JSON     = EXT + "json";
@@ -452,6 +463,10 @@ public class Processor {
 	Processor(Term t){
 		term = t;
 	}
+        
+        Term getTerm() {
+            return term;
+        }
         
         public static Processor create(){
             return new Processor();
@@ -609,6 +624,7 @@ public class Processor {
 		defoper("!", 	ExprType.NOT);
 		defoper(Term.STAR, ExprType.STAR);
 				
+		defoper("safe", ExprType.SAFE);
 		defoper(BOUND, ExprType.BOUND);
 		defoper(COUNT, 	ExprType.COUNT);
 		defoper(MIN, 	ExprType.MIN);
@@ -640,11 +656,14 @@ public class Processor {
 		defoper(INLIST,         ExprType.INLIST);
 		defoper(ISSKOLEM,       ExprType.ISSKOLEM);
 		defoper("isSkolem",     ExprType.ISSKOLEM);
+                defoper("isExtension",  ExprType.ISEXTENSION);
 		defoper(SKOLEM,         ExprType.SKOLEM);
 		defoper(RETURN,         ExprType.RETURN);
 		defoper(SEQUENCE,       ExprType.SEQUENCE);
+		defoper(EXT+SEQUENCE,   ExprType.SEQUENCE);
 		defsysoper(LET,         ExprType.LET);
 		defoper(SET,            ExprType.SET);
+		defoper(XT_JSON_OBJECT, ExprType.XT_JSON_OBJECT);
 		defoper(XT_MAP,         ExprType.XT_MAP);
 		defoper(XT_LIST,        ExprType.LIST);
 		defoper(XT_TOLIST,      ExprType.XT_TOLIST);
@@ -658,7 +677,9 @@ public class Processor {
  		defoper(XT_COMPARE,     ExprType.XT_COMPARE);
  		defoper(XT_VISITOR,     ExprType.XT_VISITOR);
                
-                
+                defoper("isFunction",      ExprType.XT_ISFUNCTION);                
+                defoper(EXT+"isFunction",  ExprType.XT_ISFUNCTION);                
+                defoper(EXT+"event",       ExprType.XT_EVENT);                
 		defoper(JAVACALL,          ExprType.JAVACALL);                
 		defoper(FUNCALL,           ExprType.FUNCALL);                
 		defsysoper(EVAL,           ExprType.EVAL);                
@@ -683,6 +704,7 @@ public class Processor {
 		defoper(XT_FIRST,       ExprType.XT_FIRST);
 		defoper(XT_REST,        ExprType.XT_REST);
 		defoper(XT_SELF,        ExprType.SELF);
+		defoper(XT_HAS,         ExprType.XT_HAS);
 		defoper(XT_GET,         ExprType.XT_GET);
 		defoper(XT_REMOVE,      ExprType.XT_REMOVE);
 		defoper(XT_REMOVE_INDEX,ExprType.XT_REMOVE_INDEX);
@@ -698,16 +720,21 @@ public class Processor {
 		defoper(XT_TOGRAPH,      ExprType.XT_TOGRAPH);
 		defoper(XT_GRAPH,        ExprType.XT_GRAPH);
 		defoper(XT_SUBJECT,      ExprType.XT_SUBJECT);
+		defoper(EXT+"predicate", ExprType.XT_PROPERTY);
 		defoper(XT_PROPERTY,     ExprType.XT_PROPERTY);
 		defoper(XT_OBJECT,       ExprType.XT_OBJECT);
 		defoper(XT_VALUE,        ExprType.XT_VALUE);                
 		defoper(XT_INDEX,        ExprType.XT_INDEX);
 		defoper(XT_VARIABLES,    ExprType.XT_VARIABLES);
-		defoper(XT_EDGE,         ExprType.XT_EDGE);
+		defoper(XT_EDGES,        ExprType.XT_EDGES);
+                defoper(EXT+"node",      ExprType.XT_NODE);
+                defoper(EXT+"subjects",  ExprType.XT_SUBJECTS);
+                defoper(EXT+"objects",   ExprType.XT_OBJECTS);
+                defoper(EXT+"vertex",    ExprType.XT_VERTEX);
 		defoper(XT_NAME,         ExprType.XT_NAME);
 		defoper(XT_TRIPLE,       ExprType.XT_TRIPLE);
 		defoper(XT_QUERY,        ExprType.XT_QUERY);
-		defoper(XT_AST,          ExprType.XT_AST);
+		//defoper(XT_AST,          ExprType.XT_AST);
 		defoper(XT_CONTEXT,      ExprType.XT_CONTEXT);
 		defoper(XT_METADATA,     ExprType.XT_METADATA);
 		defoper(XT_ANNOTATION,   ExprType.XT_METADATA);
@@ -720,6 +747,10 @@ public class Processor {
 		defoper(XT_METHOD,       ExprType.XT_METHOD);
 		defoper(XT_METHOD_TYPE,  ExprType.XT_METHOD_TYPE);
 		defoper(XT_EXISTS,       ExprType.XT_EXISTS);
+		defoper(XT_INSERT,       ExprType.XT_INSERT);
+		defoper(XT_DELETE,       ExprType.XT_DELETE);
+		defoper(XT_DEGREE,       ExprType.XT_DEGREE);
+		defoper(XT_MINDEGREE,    ExprType.XT_MINDEGREE);
                 
 		defoper(XT_FROM,         ExprType.XT_FROM);
 		defoper(XT_NAMED,        ExprType.XT_NAMED);
@@ -727,6 +758,7 @@ public class Processor {
 		defsysoper(REGEX, 	ExprType.REGEX);
                 defoper(APPROXIMATE,	ExprType.APPROXIMATE);
                 defoper(APP_SIM,	ExprType.APP_SIM);
+                defoper(EXT+"sim",      ExprType.APP_SIM);
 		defoper(DATATYPE, 	ExprType.DATATYPE);
 		defoper(STR, 		ExprType.STR);
 		defoper(XSDSTRING, 	ExprType.XSDSTRING);
@@ -734,7 +766,7 @@ public class Processor {
 		defoper(IRI, 		ExprType.URI);
 		defoper(SELF, 		ExprType.SELF);
 		defoper(DEBUG, 		ExprType.DEBUG);
-		defoper(TRACE, 		ExprType.XT_TRACE);
+		//defoper(TRACE, 		ExprType.XT_TRACE);
 
 		defoper(MATCH, 	ExprType.SKIP);
 		defoper(PLENGTH, ExprType.LENGTH);
@@ -746,6 +778,7 @@ public class Processor {
 		defsysoper(SQL, 	ExprType.SQL);
 		defoper(KGSQL, 	ExprType.SQL);
 		defoper(KG_SPARQL, ExprType.KGRAM);
+		defoper(EXT+"sparql", ExprType.KGRAM);
 		defoper(EXTERN, ExprType.EXTERN);
 		defoper(UNNEST, ExprType.UNNEST);
 		defoper(KGUNNEST, ExprType.UNNEST);
@@ -753,10 +786,15 @@ public class Processor {
 		defoper(SYSTEM, ExprType.SYSTEM);
 		defoper(GROUPBY, ExprType.GROUPBY);
 		
+		defoper(EXT+"read",     ExprType.READ);
 		defoper(READ,           ExprType.READ);
 		defoper(EXT+"write",    ExprType.WRITE);
 		defoper(WRITE,          ExprType.WRITE);
 		defoper(QNAME,          ExprType.QNAME);
+                defoper(EXT+"contract", ExprType.QNAME);
+		defoper(EXT+"expand",   ExprType.XT_EXPAND);
+		defoper(EXT+"define",   ExprType.XT_DEFINE);
+                
 		defoper(PROVENANCE, 	ExprType.PROVENANCE);
  		defoper(INDEX,          ExprType.INDEX);
  		//defoper(EXT+"index",    ExprType.INDEX);
@@ -889,12 +927,55 @@ public class Processor {
                 defoper(RQ_GT,     ExprType.GT); 
                 defoper(RQ_GE,     ExprType.GE); 
                 
+                defoper(EXT+"nodetype",     ExprType.XT_NODE_TYPE);
+                defoper(EXT+"nodename",     ExprType.XT_NODE_NAME);
+                defoper(EXT+"nodevalue",    ExprType.XT_NODE_VALUE);
+                defoper(EXT+"nodeproperty", ExprType.XT_NODE_PROPERTY);
+                defoper(EXT+"attributes",   ExprType.XT_ATTRIBUTES);
+                defoper(EXT+"elements",     ExprType.XT_ELEMENTS);
+                defoper(EXT+"children",     ExprType.XT_CHILDREN);
+                defoper(EXT+"text",         ExprType.XT_TEXT_CONTENT);
+                defoper(EXT+"nodetext",     ExprType.XT_TEXT_CONTENT);
+                defoper(EXT+"nodeparent",   ExprType.XT_NODE_PARENT);
+                defoper(EXT+"nodedocument", ExprType.XT_NODE_DOCUMENT);
+                defoper(EXT+"nodeelement",  ExprType.XT_NODE_ELEMENT);
+                defoper(EXT+"objectvalue",  ExprType.XT_DATATYPE_VALUE);
+                defoper(EXT+"namespace",    ExprType.XT_NAMESPACE);
+                defoper(EXT+"base",         ExprType.XT_BASE);
                 
+                defoper(DOM+"getNodeProperty", ExprType.XT_NODE_PROPERTY);
+                defoper(DOM+"getNodeDatatypeValue", ExprType.XT_DATATYPE_VALUE);
+
+                defoper(DOM+"getNodeType",     ExprType.XT_NODE_TYPE);
+                defoper(DOM+"getNodeName",     ExprType.XT_NODE_NAME);
+                defoper(DOM+"getLocalName",    ExprType.XT_NODE_LOCAL_NAME);
+                defoper(DOM+"getNodeValue",    ExprType.XT_NODE_VALUE);
+                defoper(DOM+"getAttributes",   ExprType.XT_ATTRIBUTES);
+                defoper(DOM+"getElementsByTagName",     ExprType.XT_ELEMENTS);
+                defoper(DOM+"getElementsByTagNameNS",   ExprType.XT_ELEMENTS);
+                defoper(DOM+"getFirstChild",    ExprType.XT_NODE_FIRST_CHILD);
+                defoper(DOM+"getChildNodes",    ExprType.XT_CHILDREN);
+                defoper(DOM+"getTextContent",   ExprType.XT_TEXT_CONTENT);
+                defoper(DOM+"getNodeParent",    ExprType.XT_NODE_PARENT);
+                defoper(DOM+"getOwnerElement",  ExprType.XT_NODE_PARENT);
+                defoper(DOM+"getOwnerDocument", ExprType.XT_NODE_DOCUMENT);
+                defoper(DOM+"getElementById",   ExprType.XT_NODE_ELEMENT);
+                defoper(DOM+"getNamespaceURI",  ExprType.XT_NAMESPACE);
+                defoper(DOM+"getBaseURI",       ExprType.XT_BASE);
+                defoper(DOM+"hasAttribute",     ExprType.XT_HAS_ATTRIBUTE);
+                defoper(DOM+"hasAttributeNS",   ExprType.XT_HAS_ATTRIBUTE);
+                defoper(DOM+"getAttribute",     ExprType.XT_ATTRIBUTE);
+                defoper(DOM+"getAttributeNS",   ExprType.XT_ATTRIBUTE);
+                
+                
+              
+                defoper(XT_VALID_URI,ExprType.XT_VALID_URI);  
                 defoper(XT_LOAD,   ExprType.LOAD);  
                 defoper(XT_CONTENT,ExprType.XT_CONTENT);  
                 defoper(XT_PRETTY, ExprType.XT_PRETTY);  
                 defoper(XT_DISPLAY,ExprType.XT_DISPLAY);  
-                defoper(XT_PRINT,  ExprType.XT_PRINT);  
+                defoper(XT_PRINT,  ExprType.XT_PRINT);                 
+                defoper(EXT+"syntax",  ExprType.XT_SYNTAX);                 
                 defoper(XT_XML,    ExprType.XT_XML);
                 defoper(XT_RDF,    ExprType.XT_RDF);
                 defoper(XT_JSON,   ExprType.XT_JSON);
@@ -913,10 +994,13 @@ public class Processor {
                 
 		defoper(DISPLAY, ExprType.DISPLAY);
 		defoper(EXTEQUAL,ExprType.EXTEQUAL);
+                defoper(EXT+"similar",ExprType.EXTEQUAL);
 		defoper(EXTCONT, ExprType.EXTCONT);
+                defoper(EXT+"contains", ExprType.EXTCONT);
 		defoper(PROCESS, ExprType.PROCESS);
 		defoper(ENV, 	 ExprType.ENV);
 		defoper(XT_ENV,  ExprType.ENV);
+		defoper(XT_STACK,ExprType.XT_STACK);
 		defoper(SLICE, 	 ExprType.SLICE);
 		defoper(DB, 	 ExprType.DB);
 
@@ -1029,7 +1113,11 @@ public class Processor {
             if (name.startsWith(RDFS.XSDPrefix) || name.startsWith(RDFS.XSD)
                     || name.startsWith(RDFS.RDFPrefix) || name.startsWith(RDFS.RDF)) {
                 n = ExprType.CAST;
-            } else if (name.startsWith(CUSTOM)) {
+            } 
+            else if (name.startsWith(NSManager.DT)) {
+                n = ExprType.XT_CAST;
+            } 
+            else if (name.startsWith(CUSTOM)) {
                 n = ExprType.CUSTOM;
             } else if (name.startsWith(KeywordPP.CORESE_PREFIX)) {
                 n = ExprType.EXTERNAL;
@@ -1331,23 +1419,13 @@ public class Processor {
                     aclasses[i] = IDatatype.class;
                 }
                
-                setProcessor(className.newInstance());
+                setProcessor(className.getDeclaredConstructor().newInstance());
                 setMethod(className.getMethod(methodName, aclasses));
                 setCorrect(true);
-            } catch (ClassNotFoundException e) {
-                e.printStackTrace();
-            } catch (SecurityException e) {
-                e.printStackTrace();
-            } catch (NoSuchMethodException e) {
-                e.printStackTrace();
-            } catch (InstantiationException e) {
-                e.printStackTrace();
-            } catch (IllegalAccessException e) {
-                e.printStackTrace();
-            } catch (IllegalArgumentException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+            } catch (InvocationTargetException | ClassNotFoundException | SecurityException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException e) {
+                java.util.logging.Logger.getLogger(Processor.class.getName()).log(Level.SEVERE, null, e);
             }
+           
     }
 	
 	

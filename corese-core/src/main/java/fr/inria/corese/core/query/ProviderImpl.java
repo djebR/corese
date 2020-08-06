@@ -30,13 +30,16 @@ import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.core.Event;
 import fr.inria.corese.core.Graph;
+import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.load.SPARQLResult;
+import fr.inria.corese.core.load.Service;
 import fr.inria.corese.kgram.core.Eval;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.sparql.triple.parser.Metadata;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Implements service expression There may be local QueryProcess for some URI
@@ -53,12 +56,13 @@ public class ProviderImpl implements Provider {
     private static final String DB = "db:";
     private static final String SERVICE_ERROR = "Service error: ";
     static Logger logger = LoggerFactory.getLogger(ProviderImpl.class);
+    private static final String LOCAL_SERVICE = "http://example.org/sparql";
     static final String LOCALHOST = "http://localhost:8080/sparql";
     static final String LOCALHOST2 = "http://localhost:8090/sparql";
     static final String DBPEDIA = "http://fr.dbpedia.org/sparql";
     HashMap<String, QueryProcess> table;
     Hashtable<String, Double> version;
-    QueryProcess defaut;
+    private QueryProcess defaut;
     private int limit = 30;
 
     private ProviderImpl() {
@@ -73,6 +77,12 @@ public class ProviderImpl implements Provider {
         p.set("https://data.archives-ouvertes.fr/sparql", 1.1);
         p.set("http://corese.inria.fr/sparql", 1.1);
         return p;
+    }
+    
+    public static ProviderImpl create(QueryProcess exec) {
+        ProviderImpl pi = ProviderImpl.create();
+        pi.setDefault(exec);
+        return pi;
     }
 
     @Override
@@ -105,7 +115,7 @@ public class ProviderImpl implements Provider {
     public void add(Graph g) {
         QueryProcess exec = QueryProcess.create(g);
         exec.set(this);
-        defaut = exec;
+        setDefault(exec);
     }
 
     /**
@@ -122,9 +132,10 @@ public class ProviderImpl implements Provider {
 
     @Override
     public Mappings service(Node serv, Exp exp, Mappings lmap, Eval eval) {
+        Query qq = eval.getEnvironment().getQuery();
         Exp body = exp.rest();
         Query q = body.getQuery();
-
+        
         QueryProcess exec = null ;
         
         if (serv != null) {
@@ -138,14 +149,14 @@ public class ProviderImpl implements Provider {
                 return map;
             }
 
-            if (defaut == null) {
+            if (getDefault() == null) {
                 map = Mappings.create(q);
                 if (q.isSilent()) {
                     map.add(Mapping.create());
                 }
                 return map;
             } else {
-                exec = defaut;
+                exec = getDefault();
             }
         }
 
@@ -196,6 +207,8 @@ public class ProviderImpl implements Provider {
      * Take Mappings variable binding into account when sending service
      * Split Mappings into buckets with size = slice
      * Iterate service on each bucket
+     * When several services, they are evaluated in parallel by default, unless @sequence metadata
+     * When several services, return *distinct* Mappings, unless @duplicate metadata.
      */
     Mappings sliceSend(Graph g, CompileService compiler, Node serviceNode, Query q, Exp exp, Mappings map, Eval eval, boolean slice, int length) {
         
@@ -270,7 +283,7 @@ public class ProviderImpl implements Provider {
     }
        
     /**
-     * Execute service with possibly input Mappings map and possibly slicing map into packet of size length
+     * Execute one service with possibly input Mappings map and possibly slicing map into packet of size length
      * Add results into Mappings sol which is empty when entering
      */
     void process(Query q, Node service, Exp exp, Mappings map, Mappings sol, Eval eval, CompileService compiler, boolean slice, int length, int timeout) {
@@ -310,6 +323,12 @@ public class ProviderImpl implements Provider {
         }
     }
     
+    /**
+     * Return final result Mappings
+     * mapList is the list of result Mappings of each service
+     * When there are *several* services, return *distinct* Mappings
+     * unless @duplicate metadata 
+     */
     Mappings getResult(Query q, List<Mappings> mapList) {
         if (mapList.size() == 1) {
             return mapList.get(0);
@@ -500,6 +519,9 @@ public class ProviderImpl implements Provider {
         if (isDB(serv)){
             return db(q, serv);
         }
+        if (serv.getLabel().equals(LOCAL_SERVICE)) {
+            return getDefault().query(getDefault().getAST(q));
+        }
         return send(q, serv,env, timeout);
     }
     
@@ -517,11 +539,28 @@ public class ProviderImpl implements Provider {
     }
     
     Mappings send(Query q, Node serv, Environment env, int timeout) throws IOException, ParserConfigurationException, SAXException {
+        return post1(q, serv, env, timeout);
+    }
+    
+    
+    Mappings post1(Query q, Node serv, Environment env, int timeout) throws IOException, ParserConfigurationException, SAXException {
+        ASTQuery aa  = (ASTQuery) q.getOuterQuery().getAST();
         ASTQuery ast = (ASTQuery) q.getAST();
         boolean trap = ast.isFederate() || ast.getGlobalAST().hasMetadata(Metadata.TRAP);
         String query = ast.toString();
-        InputStream stream = doPost(serv.getLabel(), query, timeout);       
+        InputStream stream = doPost(aa.getMetadata(), serv.getLabel(), query, timeout);       
         return parse(stream, trap);
+    }
+    
+    
+    Mappings post2(Query q, Node serv, Environment env, int timeout) throws IOException {
+        try {
+            Service service = new Service(serv.getLabel()) ;
+            Mappings map = service.query(q, null);
+            return map;
+        } catch (LoadException ex) {
+            throw (new IOException(ex.getMessage() + " " + serv.getLabel()));
+        }
     }
 
     /**
@@ -549,19 +588,20 @@ public class ProviderImpl implements Provider {
         return map;
     }
 
-    public StringBuffer doPost2(String server, String query) throws IOException {
-        URLConnection cc = post(server, query, 0);
+    public StringBuffer doPost2(Metadata meta, String server, String query) throws IOException {
+        URLConnection cc = post(meta, server, query, 0);
         return getBuffer(cc.getInputStream());
     }
 
-    public InputStream doPost(String server, String query, int timeout) throws IOException {
-        URLConnection cc = post(server, query, timeout);
+    public InputStream doPost(Metadata meta, String server, String query, int timeout) throws IOException {
+        URLConnection cc = post(meta, server, query, timeout);
         return cc.getInputStream();
     }
 
-    URLConnection post(String server, String query, int timeout) throws IOException {
+    URLConnection post(Metadata meta, String server, String query, int timeout) throws IOException {
         String qstr = "query=" + URLEncoder.encode(query, "UTF-8");
-
+        List<String> graphList = getGraphList(server, meta);
+        qstr = complete(qstr, server, graphList);
         URL queryURL = new URL(server);
         HttpURLConnection urlConn = (HttpURLConnection) queryURL.openConnection();
         urlConn.setRequestMethod("POST");
@@ -578,7 +618,26 @@ public class ProviderImpl implements Provider {
         out.flush();
 
         return urlConn;
-
+    }
+    
+    // default-graph-uri
+    String complete(String qstr, String server, List<String> graphList) {
+        if (!graphList.isEmpty()) {
+            //System.out.println("Federate: " + server + " " + graphList);
+            String graph="";
+            for (String name : graphList) {
+                graph += "&default-graph-uri=" + name;
+            }
+            qstr += graph;
+        }
+        return qstr;
+    }
+    
+    List<String> getGraphList(String server, Metadata meta) {
+        if (meta == null) {
+            return new ArrayList<>(0);
+        }
+        return meta.getGraphList(server);
     }
 
     StringBuffer getBuffer(InputStream stream) throws IOException {
@@ -605,4 +664,18 @@ public class ProviderImpl implements Provider {
 //		ProviderImpl impl = new ProviderImpl();
 //		System.out.println(impl.callSoapEndPoint());
 //	}
+
+    /**
+     * @return the defaut
+     */
+    public QueryProcess getDefault() {
+        return defaut;
+    }
+
+    /**
+     * @param defaut the defaut to set
+     */
+    public void setDefault(QueryProcess defaut) {
+        this.defaut = defaut;
+    }
 }

@@ -11,6 +11,8 @@ import fr.inria.corese.kgram.tool.MetaIterator;
 import fr.inria.corese.core.Graph;
 import fr.inria.corese.core.GraphObject;
 import fr.inria.corese.core.edge.EdgeTop;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.PRODUCER;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import java.util.ArrayList;
 
@@ -39,6 +41,8 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
     private DataFilter filter;
     DataFrom from;
     boolean isNamedGraph;
+    private boolean skipEdgeMetadata = false;
+    private boolean duplicate = false;
 
     public DataProducer(Graph g) {
         graph = g;
@@ -97,13 +101,26 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
     } 
      
     /**
-     * if arg is bnode and bnode is in target graph, bnode is considered as bnode of target graph
-     * if arg is bnode and bnode is not in target graph, it is considered as a joker (a variable) in the triple pattern
+     * if arg is bnode: 
+     *  if bnode is in target graph, it is considered as bnode of target graph
+     *  if bnode is not in target graph, it is considered as a joker (a variable) in the triple pattern
      */
     public DataProducer iterate(IDatatype s, IDatatype p, IDatatype o) {
         Node ns = null, np, no = null;
-        if (p == null || p.isBlank()){
+        if (p == null) { 
             np = graph.getTopProperty();
+        }
+        else if (p.isBlank()){
+            // check whether bnode is a graph bnode
+            np = graph.getNode(p);
+            if (np == null) {
+                // not graph bnode, it is a joker
+                np = graph.getTopProperty();
+            }
+            else {
+                // graph bnode, it cannot be a property
+                return empty();
+            }
         }
         else {
             np = graph.getPropertyNode(p);
@@ -124,18 +141,56 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
             }
         }
         
-        if (ns == null) {
-            if (no == null) {
-                return iterate(np);
+        DataProducer dp;
+        DataFilterFactory df = new DataFilterFactory() ;
+
+        if (isVariable(ns)) {
+            if (isVariable(no)) {
+                dp = iterate(np);
             } else {
-                return iterate(np, no, 1);
+                dp = iterate(np, no, 1);
             }
-        } else if (no == null) {
-            return iterate(np, ns, 0);
+        } else if (isVariable(no)) {
+            dp = iterate(np, ns, 0);
         } else {
-            return iterate(np, ns, 0).filter(new DataFilterFactory().filter(ExprType.EQ, o));
+            dp = iterate(np, ns, 0); 
         }
-    } 
+
+        if (isVariable(ns, s)) { 
+            if (isPropertyVariable(p) && s.equals(p)) {
+                df.edge(ExprType.EQ, DataFilter.SUBJECT, DataFilter.PROPERTY);
+            }
+            if (isVariable(no, o) && s.equals(o)) {
+                df.edge(ExprType.EQ, DataFilter.SUBJECT, DataFilter.OBJECT);
+            }
+        } 
+        if (isVariable(no, o)) {
+            if (isPropertyVariable(p) && o.equals(p)) {
+                df.edge(ExprType.EQ, DataFilter.OBJECT, DataFilter.PROPERTY);
+            }
+        }
+        if (!isVariable(ns) && !isVariable(no)) {
+            df.filter(ExprType.EQ, o);
+        }
+
+        if (df != null && df.getFilter()!=null) {
+            dp.filter(df);
+        }
+        return dp;
+    }
+    
+    boolean isPropertyVariable(IDatatype dt) {
+        return dt != null && dt.isBlank();
+    }
+    
+    boolean isVariable(Node n) {
+        return n == null;
+    }
+    
+    // subject/object
+    boolean isVariable(Node n, IDatatype dt) {
+        return isVariable(n) && dt!=null && dt.isBlank();
+    }
     
     /**
      * Iterate predicate from named
@@ -185,6 +240,11 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
         return  this;
     }
     
+    public DataProducer access(byte n){
+        setFilter(new DataFilter(ExprType.EDGE_ACCESS, n));
+        return  this;
+    }
+    
     public DataProducer named(){
         this.isNamedGraph = true;
         return this;
@@ -198,6 +258,7 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
         return from;
     }
     
+    // node list must be sorted
     public DataProducer from(List<Node> list) {  
         if (list != null && ! list.isEmpty()){
             getCreateDataFrom().from(list);
@@ -208,6 +269,29 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
     public DataProducer from(Node g) {
         if (g != null) {          
             getCreateDataFrom().from(g);
+        }
+        return this;
+    }
+    
+    public DataProducer from(IDatatype dt) {
+        if (dt.isList()) {
+            dt.getList().sort();
+            return fromList(dt.getValueList());
+        }
+        Node g = graph.getNode(dt, false, false);
+        return (g==null)?this:from(g);
+    }
+    
+    public DataProducer fromList(List<IDatatype> list) {  
+        if (list != null && ! list.isEmpty()){
+            ArrayList<Node> nodeList = new ArrayList<>();
+            for (IDatatype dt : list) {
+                Node node = graph.getNode(dt, false, false);
+                if (node != null) {
+                    nodeList.add(node);
+                }
+            }
+            from(nodeList);
         }
         return this;
     }
@@ -245,16 +329,46 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
         return this;
     }
     
+    public IDatatype getEdges() {
+        ArrayList<IDatatype> list = new ArrayList<>();
+        for (Edge edge : this) {
+            if (edge != null) {
+                list.add(DatatypeMap.createObject(edge));
+            }
+        }
+        return DatatypeMap.newList(list);
+    }
+    
+    public IDatatype getObjects() {
+        return getNodes(1);
+    }
+
+    public IDatatype getSubjects() {
+        return getNodes(0);
+    }
+    
+    public IDatatype getNodes(int n) {
+        ArrayList<IDatatype> list = new ArrayList<>();
+        for (Edge edge : this) {
+            if (edge != null) {
+                list.add((IDatatype) edge.getNode(n).getDatatypeValue());
+            }
+        }
+        return DatatypeMap.newList(list);
+    }
+    
+    
+    
     @Override
     public Iterable getLoop() {
         return this;
     }
     
     @Override
-    public int pointerType() {
-        return DATAPRODUCER_POINTER;
+    public PointerType pointerType() {
+        return PRODUCER;
     }
-    
+   
     public IDatatype getList() {
         ArrayList<IDatatype> list = new ArrayList<>();
         for (Edge edge : this) {
@@ -289,6 +403,20 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
     boolean same(Node n1, Node n2) {
         return n1.getIndex() == n2.getIndex() && n1.same(n2);
     }
+    
+    @Override
+    public int size() {
+        boolean b = isDuplicate();
+        setDuplicate(false);
+        int i = 0;
+        for (Edge e : this) {
+            if (e != null) {
+                i++;
+            }
+        }
+        setDuplicate(b);
+        return i;
+    }
 
     /**
      * Main function iterate Edges.
@@ -297,16 +425,33 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
     public Edge next() {
 
         while (hasNext()) {
-            Edge ent = it.next();
+            Edge edge = it.next();
             
-
-            if (isNamedGraph) {
+            if (last == null) {
                 // ok
+            }
+            else if (isNamedGraph) {
+//                if (skipEdgeMetadata) {
+//                    // two edges in same graph: skip metadata, in different graph it is ok
+//                    if (edge.getEdgeNode() == null || !same(last.getEdgeNode(), edge.getEdgeNode())) {
+//                        // different properties: ok
+//                    }
+//                    else if (metadataDifferent(last, edge)) {
+//                        // ok
+//                    }
+//                    else if (same(edge.getGraph(), last.getGraph())) {
+//                        continue;
+//                    }
+//                }
             } 
-            else if (last != null && ! different(last, ent)){
+            else if (different(last, edge)){
+                // ok
+            }
+            else {
                 continue;
             }
-            if (filter != null && ! filter.eval(ent)) {
+            
+            if (filter != null && ! filter.eval(edge)) {
                 // filter process from() clause
                 if (filter.fail()) {
                     // RuleEngine edge level may fail
@@ -316,10 +461,17 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
                 continue;
             }
                     
-            record(ent);
-            return ent;
+            record(edge);
+            return result(edge);
         }
         return null;
+    }
+    
+    Edge result(Edge edge) {
+        if (isDuplicate()) {
+            return graph.getEdgeFactory().copy(edge);
+        }
+        return edge;
     }
       
     /**
@@ -333,6 +485,9 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
         }
         if (graph.isMetadata()) {
             return metadataDifferent(last, edge);
+        }
+        if (skipEdgeMetadata) {
+           return metadataDifferent(last, edge); 
         }
         int size = last.nbNode();
         if (size == edge.nbNode()) {
@@ -357,26 +512,41 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
         return false;
     }
         
-    void record(Edge ent) {
-        if (ent.nbNode() == 2){
-            record2(ent);
+    void record(Edge edge) {
+        if (edge.nbNode() == 2){
+            last = duplicate(edge);
         }
         else {
-            last = ent;
+            last = edge;
         }
     }
 
-    // record a copy of ent for last
-    void record2(Edge ent) {
+    // record a copy of edge for last
+    Edge duplicate(Edge edge) {
         if (glast == null) {
-            glast = graph.getEdgeFactory().createDuplicate(ent);
-            last = glast;
+            glast = graph.getEdgeFactory().createDuplicate(edge);
         }
-        glast.duplicate(ent);
+        glast.duplicate(edge);
+        return glast;
     }
 
     @Override
     public void remove() {
+    }
+    
+        /**
+     * @return the edgeMetadata
+     */
+    public boolean isSkipEdgeMetadata() {
+        return skipEdgeMetadata;
+    }
+
+    /**
+     * @param edgeMetadata the edgeMetadata to set
+     */
+    public DataProducer setSkipEdgeMetadata(boolean b) {
+        this.skipEdgeMetadata = b;
+        return this;
     }
    
     
@@ -413,7 +583,7 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
      * @param filter the filter to set
      */
     public void setFilter(DataFilter f) {
-        if (filter == null){
+        if (filter == null || f == null){
             filter = f;
         }
         else if (filter.isBoolean()){
@@ -423,6 +593,21 @@ public class DataProducer extends GraphObject implements Iterable<Edge>, Iterato
             // use case: filter = from(g1)
             filter = new DataFilterAnd(filter, f);
         }
+    }
+
+    /**
+     * @return the duplicate
+     */
+    public boolean isDuplicate() {
+        return duplicate;
+    }
+
+    /**
+     * @param duplicate the duplicate to set
+     */
+    public DataProducer setDuplicate(boolean duplicate) {
+        this.duplicate = duplicate;
+        return this;
     }
     
 }

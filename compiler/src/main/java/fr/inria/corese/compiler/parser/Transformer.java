@@ -1,7 +1,5 @@
 package fr.inria.corese.compiler.parser;
 
-import fr.inria.corese.sparql.triple.function.script.Function;
-import fr.inria.corese.sparql.datatype.DatatypeHierarchy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -13,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.cst.RDFS;
 import fr.inria.corese.sparql.triple.parser.*;
-import fr.inria.corese.sparql.triple.parser.ASTExtension.ASTFunMap;
 import fr.inria.corese.compiler.api.QueryVisitor;
 import fr.inria.corese.sparql.triple.parser.Dataset;
 import fr.inria.corese.sparql.compiler.java.JavaCompiler;
@@ -25,9 +22,6 @@ import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.kgram.core.Sorter;
 import fr.inria.corese.kgram.tool.Message;
-import fr.inria.corese.kgram.filter.Extension;
-import fr.inria.corese.kgram.filter.Extension.FunMap;
-import fr.inria.corese.compiler.eval.Interpreter;
 import fr.inria.corese.compiler.federate.FederateVisitor;
 import fr.inria.corese.compiler.eval.QuerySolver;
 import fr.inria.corese.compiler.visitor.MetadataVisitor;
@@ -88,6 +82,7 @@ public class Transformer implements ExpType {
     public static final String FEDERATE = NSManager.KGRAM + "federate";
     int count = 0;
     CompilerFactory fac;
+    FunctionCompiler funCompiler;
     Compiler compiler;
     private QuerySolver sparql;
     List<QueryVisitor> visit;
@@ -119,11 +114,12 @@ public class Transformer implements ExpType {
     }
 
     Transformer() {
-        table = new HashMap<Edge, Query>();
+        table = new HashMap<>();
         // new
         fac = new CompilerFacKgram();
         compiler = fac.newInstance();
-        subQueryList = new ArrayList<Query>();
+        subQueryList = new ArrayList<>();
+        funCompiler = new FunctionCompiler(this);
     }
 
     Transformer(CompilerFactory f) {
@@ -182,22 +178,26 @@ public class Transformer implements ExpType {
     }
 
     public Query transform(String squery, boolean isRule) throws EngineException {
-
-        ast = ASTQuery.create(squery);
+        ast = parse(squery, isRule);
+        Query q = transform(ast);
+        return q;
+    }
+    
+    public ASTQuery parse(String squery) throws EngineException {
+        return parse(squery, false);
+    }
+    
+    public ASTQuery parse(String squery, boolean isRule) throws EngineException {
+        ASTQuery ast = ASTQuery.create(squery);
         ast.setRule(isRule);
         ast.setDefaultNamespaces(namespaces);
         ast.setDefaultBase(getDefaultBase());
         ast.setSPARQLCompliant(isSPARQLCompliant);
-
         if (dataset != null) {
             ast.setDefaultDataset(dataset);
         }
-
         ParserSparql1.create(ast).parse();
-        Query q = transform(ast);
-
-        return q;
-
+        return ast;
     }
     
     String getDefaultBase() {        
@@ -261,8 +261,11 @@ public class Transformer implements ExpType {
         // compile select filters
         q = transform(q, ast);
         
-//        compileFunction(ast);
-        compileLambda(q, ast);
+        funCompiler.compile(q, ast);
+        //functionCompiler(q, ast);
+        //compileFunction(q, ast);
+        //define(q, ast);        
+        //compileLambda(q, ast);
         
         error(q, ast);
         
@@ -274,18 +277,92 @@ public class Transformer implements ExpType {
     }
     
     
-    void metadata(ASTQuery ast, Query q){
-        if (ast.hasMetadata(Metadata.TRACE)){
-            System.out.println(ast);
+     /**
+     * Also used by QueryGraph to compile RDF Graph as a Query
+     */
+    public Query transform(Query q, ASTQuery ast) {
+
+        compiler.setAST(ast);
+
+        if (ast.isConstruct() || ast.isDescribe() || ast.isInsert() ) {
+            construct(q, ast);
         }
-        if (ast.hasMetadata(Metadata.TEST)){
-            q.setTest(true);
-        }       
-        if (ast.hasMetadata(Metadata.PARALLEL)) {
-            q.setParallel(true);
+
+        if (ast.isDelete()) {
+            validate(ast.getDelete(), ast);
+            Exp del = delete(ast);
+            q.setDelete(del);
+            q.setDelete(true);
         }
-        if (ast.hasMetadata(Metadata.SEQUENCE)) {
-            q.setParallel(false);
+
+        if (ast.isUpdate()) {
+            q.setUpdate(true);
+        }
+
+        // retrieve select nodes for query:
+        complete(q, ast);
+
+        having(q, ast);
+
+        if (ast.isRule()) {
+            new VisitQuery(compiler).visit(q);
+        }
+
+        if (compiler.isFail() || fail) {
+            q.setFail(true);
+        }
+
+        q.setSort(ast.isSorted());
+        q.setDebug(ast.isDebug());
+        q.setCheck(ast.isCheck());
+        q.setRelax(ast.isMore());
+        q.setPlanProfile(getPlanProfile());
+
+        for (Edge edge : table.keySet()) {
+            q.set(edge, table.get(edge));
+        }
+
+        filters(q);
+        relax(q);
+        new QueryProfile(q).profile();
+       
+//        compileFunction(q, ast);
+//        define(q, ast);
+        
+        q.setSubQueryList(subQueryList);
+        if (visit != null) {
+            for (QueryVisitor v : visit) {
+                v.visit(q);
+            }
+        }
+
+        return q;
+    }
+    
+    
+    void metadata(ASTQuery ast, Query q) {
+        Metadata meta = ast.getMetadata();
+        if (meta != null) {
+            if (ast.hasMetadata(Metadata.TRACE)) {
+                System.out.println(ast);
+            }
+            if (ast.hasMetadata(Metadata.TEST)) {
+                q.setTest(true);
+            }
+            if (ast.hasMetadata(Metadata.PARALLEL)) {
+                q.setParallel(true);
+            }
+            if (ast.hasMetadata(Metadata.SEQUENCE)) {
+                q.setParallel(false);
+            }
+            if (ast.hasMetadata(Metadata.UPDATE)) {
+                q.setDetail(true);
+            }
+            if (meta.hasMetadata(Metadata.UNLOCK) || 
+                    (meta.getDatatypeValue(Metadata.LOCK) != null
+                    && !meta.getDatatypeValue(Metadata.LOCK).booleanValue())) {
+                q.setLock(false);
+            }
         }
     }
     
@@ -294,7 +371,7 @@ public class Transformer implements ExpType {
             String name = ast.getMetadata().getValue(Metadata.COMPILE);
             JavaCompiler jc = new JavaCompiler(name);
             try {
-                jc.toJava(ast);
+                jc.compile(ast);
                 jc.write();
             } catch (IOException ex) {
                 logger.error(ex.getMessage());
@@ -482,112 +559,7 @@ public class Transformer implements ExpType {
             q.setPriority(ast.getPriority());
         }
     }
-
-    /**
-     * Also used by QueryGraph to compile RDF Graph as a Query
-     */
-    public Query transform(Query q, ASTQuery ast) {
-
-        compiler.setAST(ast);
-
-        if (ast.isConstruct() || ast.isDescribe()) {
-            construct(q, ast);
-        }
-
-        if (ast.isDelete()) {
-            validate(ast.getDelete(), ast);
-            Exp del = delete(ast);
-            q.setDelete(del);
-            q.setDelete(true);
-        }
-
-        if (ast.isUpdate()) {
-            q.setUpdate(true);
-        }
-
-        // retrieve select nodes for query:
-        complete(q, ast);
-
-        having(q, ast);
-
-        if (ast.isRule()) {
-            new VisitQuery(compiler).visit(q);
-        }
-
-        if (compiler.isFail() || fail) {
-            q.setFail(true);
-        }
-
-        q.setSort(ast.isSorted());
-        q.setDebug(ast.isDebug());
-        q.setCheck(ast.isCheck());
-        q.setRelax(ast.isMore());
-        q.setPlanProfile(getPlanProfile());
-
-        for (Edge edge : table.keySet()) {
-            q.set(edge, table.get(edge));
-        }
-
-        filters(q);
-        relax(q);
-        new QueryProfile(q).profile();
-       
-        define(q, ast);
-        
-        q.setSubQueryList(subQueryList);
-        if (visit != null) {
-            for (QueryVisitor v : visit) {
-                v.visit(q);
-            }
-        }
-
-        return q;
-    }
-
-    /**
-     * defined functions use case: transformation profile PRAGMA: expressions
-     * have declared local variables (see ASTQuery Processor)
-     */
-    void define(Query q, ASTQuery ast) {
-        if (ast.getDefine() == null || ast.getDefine().isEmpty()) {
-            return;
-        }
-        if (Access.reject(Feature.FUNCTION_DEFINITION, ast.getLevel())){ //(ast.isUserQuery()) {
-            System.out.println("Compiler: extension function not available in server mode");
-            return;
-        }
-       
-        define(ast.getDefine(), q);
-    }
-
-    void compileFunction(Query q, ASTQuery ast) {
-        compileFunction(q, ast, ast.getDefine());
-    }
     
-    void compileLambda(Query q, ASTQuery ast) {
-        compileFunction(q, ast, ast.getDefineLambda());      
-        define(ast.getDefineLambda(), q);
-    }
-    
-    void compileFunction(Query q, ASTQuery ast, ASTExtension ext) {
-        if (ext.isCompiled()) {
-            // recursion from subquery in function: do nothing
-        }
-        else {
-            ext.setCompiled(true);
-            for (Function fun : ext.getFunList()) {
-                compileFunction(q, ast, fun);
-            }
-            ext.setCompiled(false);
-        }
-    }
-    
-    void compileFunction(Query q, ASTQuery ast, Function fun) {
-        fun.compile(ast);
-        compileExist(fun, false);
-        q.defineFunction(fun);
-    }
-
     void error(Query q, ASTQuery ast) {
         if (ast.isFail()) {
             q.setFail(true);
@@ -596,130 +568,49 @@ public class Transformer implements ExpType {
             // TODO: because template st:profile may not have been read yet ...
             return;
         }
-        undefinedFunction(q, ast);
+        funCompiler.undefinedFunction(q, ast);
     }
+    
+    
 
-    void undefinedFunction(Query q, ASTQuery ast) {
-        for (Expression exp : ast.getUndefined().values()) {
-            boolean ok = Interpreter.isDefined(exp);
-            if (ok) { } 
-            else {
-                ok = Access.accept(Feature.LINKED_FUNCTION, ast.getLevel()) //!ast.isUserQuery()
-                        //&& (isLinkedFunction() || ast.hasMetadata(Metadata.IMPORT))
-                        && importFunction(q, exp);
-                if (!ok) {
-                    ast.addError("undefined expression: " + exp);
-                }
-            }
-        }
-    }
-     
-    boolean importFunction(Query q, Expression exp) {
-        boolean b = getLinkedFunctionBasic(exp.getLabel());
-        if (b) {
-            return Interpreter.isDefined(exp);
-        }
-        return false;
-    }
     
     public boolean getLinkedFunction(String label) {
         if (Access.reject(Feature.LINKED_FUNCTION, Level.DEFAULT)) { //(! isLinkedFunction()){
             return false;
         }
-        return getLinkedFunctionBasic(label);
+        return funCompiler.getLinkedFunctionBasic(label);
     }
         
     public boolean getLinkedFunctionBasic(String label) {
-        String path = NSManager.namespace(label);  
-        if (loaded.containsKey(path)) {
-            return true;
-        }
-        logger.info("Load Linked Function: " + label);
-        loaded.put(path, path);
-        Query imp = sparql.parseQuery(path);
-        if (imp != null && imp.hasDefinition()) {
-            // loaded functions are exported in Interpreter  
-            definePublic(imp.getExtension(), imp);
-            return true;
-        }
-        return false;
+        return funCompiler.getLinkedFunctionBasic(label);
     }
     
     public static void removeLinkedFunction() {
-        for (String name : loaded.values()) {
-            Interpreter.getExtension().removeNamespace(name);
-        }
-        loaded.clear();
+        FunctionCompiler.removeLinkedFunction();
     }
     
-
-    /**
-     * Define function into Extension Export into Interpreter
-     */
-    void define(ASTExtension aext,  Query q) {
-        Extension ext = q.getCreateExtension(); 
-        DatatypeHierarchy dh = new DatatypeHierarchy();
-        if (q.isDebug()) dh.setDebug(true);
-        ext.setHierarchy(dh);
-        
-        for (ASTFunMap m : aext.getMaps()) {
-            for (Function exp : m.values()) {
-                ext.define(exp);
-                if (exp.isPublic()) {
-                    definePublic(exp, q);
-                }
-            }
-        }
-    }
-      
-    // TODO: check isSystem() because it is exported
-    /**
-     * ext is loaded function definitions define them as public
-     *
-     * @param ext
-     * @param q
-     */
-    void definePublic(Extension ext, Query q) {
-        definePublic(ext, q, true);
-    }
-
     /**
      * isDefine = true means export to Interpreter Use case: Transformation
      * st:profile does not export to Interpreter hence it uses isDefine = false
      */
-    public void definePublic(Extension ext, Query q, boolean isDefine) {
-        for (FunMap m : ext.getMaps()) {
-            for (Expr exp : m.values()) {
-                Function e = (Function) exp;
-                definePublic(e, q, isDefine);
-            }
-        }
+    public void definePublic(ASTExtension ext, Query q, boolean isDefine) {
+        funCompiler.definePublic(ext, q, isDefine);
     }
+    
 
-    void definePublic(Function fun, Query q) {
-        definePublic(fun, q, true);
-    }
 
-    void definePublic(Function fun, Query q, boolean isDefine) {
-        if (isDefine) {
-            if (Interpreter.getExtension().getHierarchy() == null) {
-                Interpreter.getExtension().setHierarchy(new DatatypeHierarchy());
-            }
-            Interpreter.define(fun);
-        }
-        fun.setPublic(true);
-        if (fun.isSystem()) {
-            // export function with exists {} 
-            fun.getTerm().setPattern(q);
-        }
-    }
 
     void construct(Query q, ASTQuery ast) {
         validate(ast.getInsert(), ast);
         Exp cons = compile(ast.getInsert(), false);
         q.setConstruct(cons);
-        q.setConstruct(true);
-
+        if (ast.isInsert()) {
+            q.setInsert(true);
+        }
+        else {
+            q.setConstruct(true);
+        }
+        //q.setConstruct(true);
         q.setConstructNodes(cons.getNodes());
     }
 
@@ -731,7 +622,7 @@ public class Transformer implements ExpType {
         Exp ee = compile(ast.getExtBody(), false);
         Query q = Query.create(ee);
         q.setUseBind(isUseBind);
-        compileFunction(q, ast);
+        //compileFunction(q, ast);
         q.setAST(ast);
         q.setHasFunctional(ast.hasFunctional());
         q.setService(ast.getService());
@@ -791,7 +682,7 @@ public class Transformer implements ExpType {
     }
 
     Exp compileBind(ASTQuery ast, Expression e, Variable var) {
-        Filter f = compileSelect(e, ast);
+        fr.inria.corese.kgram.api.core.Filter f = compileSelect(e, ast);
         Node node = compiler.createNode(var);
         Exp exp = Exp.create(BIND);
         exp.setFilter(f);
@@ -1047,7 +938,7 @@ public class Transformer implements ExpType {
         }
         for (Expression test : ast.getRegexTest()) {
             // ?x c:isMemberOf[?this != <inria>] + ?y
-            Filter f = compile(test);
+            fr.inria.corese.kgram.api.core.Filter f = compile(test);
             q.addPathFilter(f);
         }
     }
@@ -1055,7 +946,7 @@ public class Transformer implements ExpType {
     void having(Query q, ASTQuery ast) {
         if (ast.getHaving() != null) {
             //Filter having = compile(ast.getHaving());			
-            Filter having = compileSelect(ast.getHaving(), ast);
+            fr.inria.corese.kgram.api.core.Filter having = compileSelect(ast.getHaving(), ast);
             q.setHaving(Exp.create(FILTER, having));
         }
     }
@@ -1067,12 +958,12 @@ public class Transformer implements ExpType {
      * subquery - once for the global query
      */
     List<Exp> select(Query qCurrent, ASTQuery ast) {
-        List<Exp> select = new ArrayList<Exp>();
+        List<Exp> select = new ArrayList<>();
         // list of query nodes created for variables in filter that need
         // an outer node value
-        List<Node> lNodes = new ArrayList<Node>();
+        List<Node> lNodes = new ArrayList<>();
 
-        if (ast.isSelectAll() || ast.isConstruct()) {
+        if (ast.isSelectAll() || ast.isConstruct() || ast.isInsert()) {
             // select *
             // get nodes from query nodes and edges
             select = qCurrent.getSelectNodesExp();
@@ -1091,7 +982,7 @@ public class Transformer implements ExpType {
 
             if (ee != null) {
                 // select fun() as var
-                Filter f = compileSelect(ee, ast);
+                fr.inria.corese.kgram.api.core.Filter f = compileSelect(ee, ast);
 
                 if (f != null) {
                     // select fun() as var
@@ -1236,7 +1127,7 @@ public class Transformer implements ExpType {
      * @param query
      * @param f
      */
-    void checkFilterVariables(Query query, Filter f, List<Exp> select, List<Node> lNodes) {
+    void checkFilterVariables(Query query, fr.inria.corese.kgram.api.core.Filter f, List<Exp> select, List<Node> lNodes) {
         switch (f.getExp().oper()) {
             // do not create Node for local variables
             case ExprType.PACKAGE:
@@ -1323,7 +1214,7 @@ public class Transformer implements ExpType {
             } else {
                 // order by fun(?x)
                 // TODO: check rewrite fun() as var
-                Filter f = compile(ee);
+                fr.inria.corese.kgram.api.core.Filter f = compile(ee);
                 Node node = createNode();
                 Exp exp = Exp.create(NODE, node);
                 exp.setFilter(f);
@@ -1380,7 +1271,7 @@ public class Transformer implements ExpType {
         switch (type) {
 
             case FILTER:
-                exp = compileFilter(query.getTriple(), opt);
+                exp = compileFilter(query.getFilter(), opt);
                 break;
 
             case EDGE:
@@ -1388,14 +1279,15 @@ public class Transformer implements ExpType {
                 break;
 
             case QUERY:
-                if (query.getQuery().isConstruct()) {
-                    exp = constructQuery(query.getQuery());
+                ASTQuery aa = query.getQuery();
+                if (aa.isConstruct()) {
+                    exp = constructQuery(aa);
                 } 
-                else if (query.getQuery().isUpdate()) {
-                    exp = updateQuery(query.getQuery());
+                else if (aa.isUpdate()) {
+                    exp = updateQuery(aa);
                 }
                 else {
-                    exp = compileQuery(query.getQuery());
+                    exp = compileQuery(aa);
                 }
                 break;
 
@@ -1495,7 +1387,7 @@ public class Transformer implements ExpType {
         if (t.isXPath()) {
             // deprecated ?x xpath() ?y
             exp.setType(EVAL);
-            Filter xpath = compiler.compile(t.getXPath());
+            fr.inria.corese.kgram.api.core.Filter xpath = compiler.compile(t.getXPath());
             exp.setFilter(xpath);
         } else if (t.isPath()) {
             path(t, exp);
@@ -1598,8 +1490,8 @@ public class Transformer implements ExpType {
         return exp;
     }
 
-    Exp compileFilter(Triple triple, boolean opt) {
-        List<Filter> qvec = compiler.compileFilter(triple);
+    Exp compileFilter(Expression ee, boolean opt) {
+        List<fr.inria.corese.kgram.api.core.Filter> qvec = compiler.compileFilter(ee);
         Exp exp;
 
         if (qvec.size() == 1) {
@@ -1607,7 +1499,7 @@ public class Transformer implements ExpType {
             compileExist(qvec.get(0).getExp(), opt);
         } else {
             exp = Exp.create(AND);
-            for (Filter qm : qvec) {
+            for (fr.inria.corese.kgram.api.core.Filter qm : qvec) {
                 Exp f = Exp.create(FILTER, qm);
                 compileExist(qm.getExp(), opt);
                 exp.add(f);
@@ -1623,8 +1515,8 @@ public class Transformer implements ExpType {
     /**
      * Rewrite fun() as ?var in exp Compile exists {}
      */
-    Filter compile(Expression exp) {
-        Filter f = compiler.compile(exp);
+    fr.inria.corese.kgram.api.core.Filter compile(Expression exp) {
+        fr.inria.corese.kgram.api.core.Filter f = compiler.compile(exp);
         compileExist(f.getExp(), false);
         return f;
     }
@@ -1632,8 +1524,8 @@ public class Transformer implements ExpType {
     /**
      * Do not rewrite fun() as var
      */
-    Filter compileSelect(Expression exp, ASTQuery ast) {
-        Filter f = exp.compile(ast);
+    fr.inria.corese.kgram.api.core.Filter compileSelect(Expression exp, ASTQuery ast) {
+        fr.inria.corese.kgram.api.core.Filter f = exp.compile(ast);
         compileExist(f.getExp(), false);
         return f;
     }
@@ -1681,7 +1573,7 @@ public class Transformer implements ExpType {
      * Exp e
      */
     void processPath(Exp exp, Exp ef) {
-        Filter f = ef.getFilter();
+        fr.inria.corese.kgram.api.core.Filter f = ef.getFilter();
         Edge e = exp.getEdge();
         Node n = e.getEdgeVariable();
 
@@ -1833,7 +1725,7 @@ public class Transformer implements ExpType {
 
         for (fr.inria.corese.sparql.triple.parser.Exp ee : exp.getBody()) {
             boolean b = true;
-
+            
             if (ee.isTriple()) {
                 b = validate(ee.getTriple(), ast);
             } else if (ee.isGraph()) {

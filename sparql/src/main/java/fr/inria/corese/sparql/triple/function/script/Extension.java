@@ -30,7 +30,9 @@ public class Extension extends LDScript {
     List<Expr> arguments;
     Computer cc;
     boolean visit = true;
-
+    boolean typecheck = Function.typecheck;
+    boolean todo = true;
+ 
     public Extension() {}
     
     public Extension(String name) {
@@ -61,13 +63,19 @@ public class Extension extends LDScript {
 
     @Override
     public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
-        if (function == null) {
-            function = (Function) eval.getDefine(this, env);
-            if (function == null) {
-                logger.error("Undefined function: " + this.getLabel() + " " + this);
-                return null;
-            } else {
-                init();
+        if (todo) {
+            synchronized (this) {
+                // public functions are shared ...
+                if (function == null) {
+                    function = eval.getDefine(this, env);
+                    if (function == null) {
+                        logger.error("Undefined function: " + this.getLabel() + " " + this);
+                        return null;
+                    } else {
+                        init();
+                    }
+                }
+                todo = false;
             }
         }
                 
@@ -91,9 +99,12 @@ public class Extension extends LDScript {
                 dt = body.eval(eval, b, env, p);
                 b.unset(function);
             }
+            if (typecheck) {
+                check(eval, b, env, p, dt, value1);
+            }
             if (dt == null) {
                 return null;
-            }
+            }          
             return b.resultValue(dt);
         } else if (isBinary) {
             IDatatype value1 = exp1.eval(eval, b, env, p);
@@ -107,6 +118,9 @@ public class Extension extends LDScript {
             }               
             IDatatype dt = body.eval(eval, b, env, p);
             b.unset(function);
+            if (typecheck) {
+                check(eval, b, env, p, dt, value1, value2);
+            }
             if (dt == null) {
                 return null;
             }
@@ -129,13 +143,18 @@ public class Extension extends LDScript {
                 dt = body.eval(eval, b, env, p);
             }
             b.unset(function, arguments);
+            if (typecheck) {
+                check(eval, b, env, p, dt, param);
+            }
             if (dt == null) {
                 return null;
-            }
+            }            
             return b.resultValue(dt);
-
         }
-
+    }
+        
+    void check(Computer eval, Binding b, Environment env, Producer p, IDatatype dt, IDatatype... param) {
+        function.check(eval, b, env, p, param, dt);
     }
     
     void visit(Environment env) {
@@ -157,7 +176,7 @@ public class Extension extends LDScript {
     @Override
     public IDatatype eval(Computer eval, Binding b, Environment env, Producer p, IDatatype[] param) {
         if (function == null) {
-            function = (Function) eval.getDefine(this, env);
+            function = eval.getDefine(this, env);
             if (function == null) {
                 logger.error("Undefined function: " + this);
                 return null;

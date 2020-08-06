@@ -1,8 +1,11 @@
 package fr.inria.corese.core;
 
-import fr.inria.corese.kgram.api.core.ExpType;
+import fr.inria.corese.kgram.api.core.Node;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -40,7 +43,15 @@ public class GraphStore extends Graph {
         g.copy(this);
         return g;
     }
+     
+    @Override
+    public void shareNamedGraph(Graph g) {
+         for (String name : g.getNames()) {
+             setNamedGraph(name, g.getNamedGraph(name));
+         }
+     }
     
+    @Override
     public GraphStore empty(){
         GraphStore g = new GraphStore();
         g.inherit(this);
@@ -84,8 +95,18 @@ public class GraphStore extends Graph {
         return getStore().values();
     }
     
-    public Set<String> getNames(){
+    @Override
+    public Collection<String> getNames(){
         return getStore().keySet();
+    }
+    
+    @Override
+    public List<Node> getGraphNodesExtern() {
+        ArrayList<Node> list = new ArrayList<>();
+        for (String name : getNames()) {
+            list.add(NodeImpl.create(DatatypeMap.createResource(name)));
+        }
+        return list;
     }
 
     public Graph getDefaultGraph() {

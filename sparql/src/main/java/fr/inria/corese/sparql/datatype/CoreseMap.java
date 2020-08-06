@@ -13,7 +13,7 @@ import java.util.TreeMap;
  * @author Olivier Corby, Wimmics INRIA I3S, 2018
  *
  */
-public class CoreseMap extends CoreseUndefLiteral {
+public class CoreseMap extends CoreseExtension {
 
     private static final IDatatype dt = getGenericDatatype(IDatatype.MAP_DATATYPE);
     private static int count = 0;
@@ -30,22 +30,17 @@ public class CoreseMap extends CoreseUndefLiteral {
     public IDatatype getDatatype() {
         return dt;
     }
-    
-     @Override
-    public IDatatype display() {
-        return DatatypeMap.createUndef(getContent(), getDatatypeURI());
-    }
-    
+      
     @Override
     public String getContent() {
         return String.format("[Map: size=%s]", map.size());
     }
     
     @Override
-    public String toString() {
-        return display().toString();
+    public boolean isExtension() {
+        return true;
     }
-    
+       
     @Override
     public int size() {
         return map.size();
@@ -61,10 +56,27 @@ public class CoreseMap extends CoreseUndefLiteral {
         return map;
     }
     
-    public Map getMap() {
+    @Override
+    public Map<IDatatype, IDatatype> getMap() {
         return map;
     }
-        
+    
+    public void incr(IDatatype key) {
+        IDatatype num = get(key);
+        if (num == null) {
+            num = DatatypeMap.newInstance(0);
+        }
+        set(key, num.intValue() + 1);
+    }
+    
+    public void set(IDatatype key, int val) {
+        set(key, DatatypeMap.newInstance(val));
+    }
+
+    public void set(String key, IDatatype val) {
+        set(DatatypeMap.newResource(key), val);
+    }
+    
     @Override
     public IDatatype set(IDatatype key, IDatatype value) {
         map.put(key, value);
@@ -74,6 +86,11 @@ public class CoreseMap extends CoreseUndefLiteral {
     @Override
     public IDatatype member(IDatatype key) {
         return  map.containsKey(key) ? TRUE : FALSE;
+    }
+    
+    @Override
+    public IDatatype has(IDatatype key) {
+        return map.containsKey(key) ? TRUE : FALSE;
     }
     
     @Override
@@ -117,7 +134,7 @@ public class CoreseMap extends CoreseUndefLiteral {
     class TreeDatatype extends TreeMap<IDatatype, IDatatype> {
 
         TreeDatatype() {
-            super((IDatatype t, IDatatype t1) -> t.compareTo(t1));
+            super((IDatatype t, IDatatype t1) -> t.mapCompareTo(t1));
         }
     }
 

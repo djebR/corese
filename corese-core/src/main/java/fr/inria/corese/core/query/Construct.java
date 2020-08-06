@@ -1,5 +1,6 @@
 package fr.inria.corese.core.query;
 
+import fr.inria.corese.core.EdgeFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -11,7 +12,6 @@ import org.slf4j.LoggerFactory;
 
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.triple.parser.Dataset;
-import fr.inria.corese.kgram.api.core.Edge;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.core.Exp;
@@ -19,8 +19,13 @@ import fr.inria.corese.kgram.core.Mapping;
 import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.core.Event;
+import fr.inria.corese.core.query.update.GraphManager;
+import fr.inria.corese.core.rule.Rule;
 import fr.inria.corese.core.util.Duplicate;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.kgram.api.query.ProcessVisitor;
+import fr.inria.corese.sparql.triple.parser.ASTQuery;
+import fr.inria.corese.sparql.triple.parser.AccessRight;
 
 /**
  * construct where describe where delete where
@@ -32,27 +37,31 @@ public class Construct
         implements Comparator<Node> {
 
     private static Logger logger = LoggerFactory.getLogger(Construct.class);
+    private static boolean allEntailment = false;
     static final String BLANK = "_:b_";
     static final String DOT = ".";
     int count = 0, ruleIndex = 0, index = 0;
     String root;
     Query query;
+    ASTQuery ast;
     GraphManager graph;
     Node defaultGraph;
     //IDatatype dtDefaultGraph;
     List<Edge> lInsert, lDelete;
     Dataset ds;
+    private boolean detail = false;
     boolean isDebug = false,
             isDelete = false,
             isRule = false,
             isInsert = false,
             isBuffer = false;
     private boolean test = false;
-    Object rule;
+    Rule rule;
     HashMap<Node, Node> table;
     Duplicate duplicate;
     private int loopIndex = -1;
     private Node prov;
+    private ProcessVisitor visitor;
     
 
     Construct(Query q, Dataset ds) {
@@ -62,6 +71,7 @@ public class Construct
 
     Construct(Query q) {
         query = q;
+        ast = (ASTQuery) query.getAST();
         table = new HashMap<Node, Node>();
         count = 0;
         //dtDefaultGraph = DatatypeMap.createResource(src);
@@ -71,11 +81,7 @@ public class Construct
     public static Construct create(Query q) {
         Construct cons = new Construct(q);
         if (q.isDetail()) {
-            if (q.isConstruct()) {
-                cons.setInsertList(new ArrayList<Edge>());
-            } else {
-                cons.setDeleteList(new ArrayList<Edge>());
-            }
+            cons.setDetail(true);
         }
         return cons;
     }
@@ -115,7 +121,7 @@ public class Construct
         isInsert = b;
     }
 
-    public void setRule(Object r, int n, Node prov) {
+    public void setRule(Rule r, int n, Node prov) {
         isRule = true;
         rule = r;
         root = BLANK + n + DOT;
@@ -141,29 +147,60 @@ public class Construct
     public List<Edge> getDeleteList() {
         return lDelete;
     }
-
+    
     public void construct(Mappings map) {
          construct(map, null);
     }
     
     public void delete(Mappings map, Dataset ds) {
+        if (AccessRight.isActive()) {
+            if (! ast.getAccess().isDelete()){
+                return;
+            } 
+        }
         setDelete(true);
         if (ds != null && ds.isUpdate()) {
             this.ds = ds;
+        }
+        if (isDetail()){
+            setDeleteList(new ArrayList<>());
         }
         construct(map, null);
     }
 
     public void insert(Mappings map, Dataset ds) {
+        if (AccessRight.isActive()) {
+            if (! ast.getAccess().isInsert()){
+                return;
+            } 
+        }
         setInsert(true);
         if (ds != null && ds.isUpdate()) {
             this.ds = ds;
+        }
+        if (isDetail()){
+            setInsertList(new ArrayList<>());
         }
         construct(map, null);
     }
          
     Event event() {
         return (isDelete) ? Event.Delete : (isInsert) ? Event.Insert : Event.Construct ;
+    }
+    
+    // when external named graph, use specific GraphManager
+    void setGraphManager(Exp exp) {
+        if (exp.first().isGraph()) {
+            // draft: graph kg:system { }
+            // in GraphStore
+            Node gNode = exp.first().getGraphName();
+            if (gNode.isConstant()) {
+                GraphManager m = graph.getNamedGraph(gNode.getLabel());
+                if (m != null) {
+                    set(m);
+                }
+            }
+        }
     }
     
     public void construct(Mappings map, Environment env) {  
@@ -173,20 +210,8 @@ public class Construct
             exp = query.getDelete();
         }
 
-        if (exp.first().isGraph()) {
-            // draft: graph kg:system { }
-            // in GraphStore
-            Node gNode = exp.first().getGraphName();
-            if (gNode.isConstant()){
-                GraphManager m = graph.getNamedGraph(gNode.getLabel());
-                if (m != null){
-                    set(m);
-                }
-            }
-        }
-
-
-        //init();
+        // when external named graph, use specific GraphManager
+        setGraphManager(exp);
 
         Node gNode = defaultGraph;
         if (gNode == null) {
@@ -204,28 +229,48 @@ public class Construct
         if (lDelete != null) {
             map.setDelete(lDelete);
         }
-
+                
         if (env != null) {
             // construct one solution in env
-            clear();
-            construct(gNode, exp, map, env);
+            process(gNode, exp, map, env);
         } else {
-            for (Mapping m : map) {
-                // each map has its own blank nodes:
-                clear();
-                construct(gNode, exp, map, m);
+            for (Mapping m : map) {       
+                process(gNode, exp, map, m);
             }
         }
 
-        graph.finish(event());
-        
+        graph.finish(event());     
+    }
+    
+    void process(Node gNode, Exp exp, Mappings map, Environment env) {
+        List<Edge> edgeList = null;
+        clear();
+        if (isRule) {
+            edgeList = new ArrayList<>();
+        }
+        construct(gNode, exp, map, env, edgeList);
+        record(edgeList, env.getEdges());
+    }
+    
+    void record(List<Edge> construct, Edge[] where) {
+        if (isRule && ! construct.isEmpty() && getVisitor().entailment()) {
+            List<Edge> whereList = new ArrayList<>();
+            for (Edge e : where) {
+                whereList.add(graph.getGraph().getEdgeFactory().copy(e));
+                //whereList.add(e);
+            }
+            if (getVisitor() != null) {
+                getVisitor().entailment(query, construct, whereList);
+            }
+        }
     }
 
     /**
      * Recursive construct of exp with map Able to process construct graph ?g
      * {exp}
+     * env: current solution mapping to be processed
      */
-    void construct(Node gNode, Exp exp, Mappings map, Environment env) {
+    void construct(Node gNode, Exp exp, Mappings map, Environment env, List<Edge> edgeList) {
         if (exp.isGraph()) {
             gNode = exp.getGraphName();
             exp = exp.rest();
@@ -233,53 +278,72 @@ public class Construct
 
         for (Exp ee : exp.getExpList()) {
             if (ee.isEdge()) {
-                Edge ent = construct(gNode, ee.getEdge(), env);
+                Edge ent = construct(gNode, ee.getEdge(), env);              
                 if (ent != null) {
                     // RuleEngine loop index
                     ent.setIndex(loopIndex);
                     if (isDelete) {
-                        if (isDebug) {
-                            logger.debug("** Delete: " + ent);
+                        boolean accept = true;
+                        if (AccessRight.isActive()) {
+                            accept = ast.getAccess().setDelete(ent);
                         }
-                        List<Edge> list = null;
-                        if (gNode == null && ds != null && ds.hasFrom()) {
-                            // delete in default graph
-                            list = graph.delete(ent, ds.getFrom());
-                        } else {
-                            // delete in all named graph
-                            list = graph.delete(ent);
-                        }
-                        if (list != null) {
-                            map.setNbDelete(map.nbDelete() + list.size());
+                        if (accept) {
+                            if (isDebug) {
+                                logger.debug("** Delete: " + ent);
+                            }
+                            List<Edge> list = null;
+                            if (gNode == null && ds != null && ds.hasFrom()) {
+                                // delete in default graph
+                                list = graph.delete(ent, ds.getFrom());
+                            } else {
+                                // delete in all named graph
+                                list = graph.delete(ent);
+                            }
+                            if (list != null) {
+                                map.setNbDelete(map.nbDelete() + list.size());
 
-                            if (lDelete != null) {
-                                lDelete.addAll(list);
+                                if (lDelete != null) {
+                                    //lDelete.addAll(list);
+                                    lDelete.add(ent);
+                                }
                             }
                         }
 
-                    } else {
+                    } else { // insert/construt
                         if (isDebug) {
                             logger.debug("** Construct: " + ent);
                         }
-                        if (!isBuffer) {
-                            // isBuffer means: bufferise edges in a list 
-                            // that will be processed later by RuleEngine
-                            // otherwise, store edge in graph rigth now
-                            ent = graph.insert(ent);
+                        boolean accept = true;
+                        if (AccessRight.isActive()) {
+                            accept = ast.getAccess().setInsert(ent);
                         }
-                        if (ent != null) {
-                            map.setNbInsert(map.nbInsert() + 1);
-                            if (lInsert != null) {
-                                // buffer where to store edges
-                                lInsert.add(ent);
+                        if (accept) {
+                            if (isRule && isAllEntailment()) {
+                                edgeList.add(ent);
                             }
+                            if (!isBuffer) {
+                                // isBuffer means: bufferise edges in a list 
+                                // that will be processed later by RuleEngine
+                                // otherwise, store edge in graph rigth now
+                                ent = graph.insert(ent);
+                            }
+                            if (ent != null) {
+                                if (isRule && ! isAllEntailment()) {
+                                    edgeList.add(ent);
+                                }
+                                map.setNbInsert(map.nbInsert() + 1);
+                                if (lInsert != null) {
+                                    // buffer where to store edges
+                                    lInsert.add(ent);
+                                }
 
-                            if (isInsert) {
-                                // When insert in new graph g, update dataset named += g
-                                if (ds != null) {
-                                    String name = ent.getGraph().getLabel();
-                                    if (! graph.isDefaultGraphNode(name)) {
-                                        ds.addNamed(name);
+                                if (isInsert) {
+                                    // When insert in new graph g, update dataset named += g
+                                    if (ds != null) {
+                                        String name = ent.getGraph().getLabel();
+                                        if (!graph.isDefaultGraphNode(name)) {
+                                            ds.addNamed(name);
+                                        }
                                     }
                                 }
                             }
@@ -287,7 +351,7 @@ public class Construct
                     }
                 }
             } else {
-                construct(gNode, ee, map, env);
+                construct(gNode, ee, map, env, edgeList);
             }
         }
     }
@@ -402,7 +466,7 @@ public class Construct
     Node construct(Node gNode, Node qNode, Environment map) {
         // search target node
         Node node = table.get(qNode);
-
+        
         if (node == null) {
             // target node not yet created
             // search map node
@@ -528,5 +592,47 @@ public class Construct
      */
     public void setTest(boolean test) {
         this.test = test;
+    }
+
+    /**
+     * @return the detail
+     */
+    public boolean isDetail() {
+        return detail;
+    }
+
+    /**
+     * @param detail the detail to set
+     */
+    public void setDetail(boolean detail) {
+        this.detail = detail;
+    }
+
+    /**
+     * @return the visitor
+     */
+    public ProcessVisitor getVisitor() {
+        return visitor;
+    }
+
+    /**
+     * @param visitor the visitor to set
+     */
+    public void setVisitor(ProcessVisitor visitor) {
+        this.visitor = visitor;
+    }
+
+    /**
+     * @return the allEntailment
+     */
+    public static boolean isAllEntailment() {
+        return allEntailment;
+    }
+
+    /**
+     * @param aAllEntailment the allEntailment to set
+     */
+    public static void setAllEntailment(boolean aAllEntailment) {
+        allEntailment = aAllEntailment;
     }
 }

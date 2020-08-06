@@ -161,9 +161,10 @@ public class Transformer {
             
             TransformerEngine engine = new TransformerEngine(store.getGraph(), Profile.getProfile().getProfileGraph(), par);
             engine.setDebug(EmbeddedJettyServer.isDebug());
+            engine.setEventManager(Profile.getEventManager());
             context = engine.getContext();
                        
-            if (store != null && store.getMode() == QueryProcess.PROTECT_SERVER_MODE) {
+            if (store != null && store.isProtect()) { //store.getMode() == QueryProcess.PROTECT_SERVER_MODE) {
                 // check profile, transform and query
                 String prof = context.getProfile();
                 if (prof != null && !nsm.toNamespace(prof).startsWith(NSManager.STL)) {

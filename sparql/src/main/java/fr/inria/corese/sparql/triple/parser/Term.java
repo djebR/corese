@@ -81,6 +81,7 @@ public class Term extends Expression {
     private ExpressionList nestedList;
     // additional system arg:
     Expression exp;
+    // compiled kgram Exp
     ExpPattern pattern;
     boolean isFunction = false,
             isCount = false,
@@ -214,6 +215,7 @@ public class Term extends Expression {
             case ExprType.IF:
                 return new IfThenElseTerm(name);
             case ExprType.BOUND:
+            case ExprType.SAFE:
                 return new Bound(name);
             case ExprType.COALESCE:
                 return new Coalesce(name);
@@ -225,11 +227,32 @@ public class Term extends Expression {
             case ExprType.XT_PRINT:
             case ExprType.XT_PRETTY:
                 return new Display(name);
+                
             case ExprType.XT_XML:
             case ExprType.XT_JSON:
             case ExprType.XT_RDF:
                 // return text format for Mappings
                 return new ResultFormater(name);
+                
+            case ExprType.XT_ATTRIBUTES:
+            case ExprType.XT_ATTRIBUTE:
+            case ExprType.XT_HAS_ATTRIBUTE:
+            case ExprType.XT_NODE_TYPE:
+            case ExprType.XT_NODE_VALUE:
+            case ExprType.XT_NODE_NAME:    
+            case ExprType.XT_NODE_LOCAL_NAME:    
+            case ExprType.XT_NODE_PARENT:    
+            case ExprType.XT_NODE_DOCUMENT:    
+            case ExprType.XT_NODE_ELEMENT:    
+            case ExprType.XT_NODE_PROPERTY:    
+            case ExprType.XT_ELEMENTS:
+            case ExprType.XT_CHILDREN:
+            case ExprType.XT_NODE_FIRST_CHILD:
+            case ExprType.XT_TEXT_CONTENT:
+            case ExprType.XT_NAMESPACE:
+            case ExprType.XT_BASE:
+                return new XML(name);
+ 
             case ExprType.XT_SPIN:
                 // return SPIN graph for query
                 return new SPINFormater(name);
@@ -258,6 +281,7 @@ public class Term extends Expression {
             case ExprType.ISWELLFORMED:
             case ExprType.ISUNDEFINED:
             case ExprType.ISSKOLEM:
+            case ExprType.ISEXTENSION:
                 return new UnaryFunction(name);
 
             case ExprType.CONCAT:
@@ -333,7 +357,11 @@ public class Term extends Expression {
             case ExprType.XT_METHOD_TYPE:
                 return new MethodTypeCall(name);
             case ExprType.EVAL:
-                return new Eval(name);    
+                return new Eval(name);
+            case ExprType.XT_ISFUNCTION:
+                return new FunctionDefined(name);
+            case ExprType.XT_EVENT:
+                return new EventCall(name);
             case ExprType.APPLY:        
             case ExprType.FUNCALL:
                 return new Funcall(name);
@@ -383,6 +411,7 @@ public class Term extends Expression {
             case ExprType.XT_GEN_REST:
                 return new Rest(name);
                 
+            case ExprType.XT_HAS:
             case ExprType.XT_GET:
                 return new Get(name);
             case ExprType.XT_REVERSE:
@@ -395,6 +424,9 @@ public class Term extends Expression {
                 return new ListTerm(name);
             case ExprType.XT_MAP:
                 return new MapTerm(name);
+             case ExprType.XT_JSON_OBJECT:
+                return new JSONTerm(name);    
+                
             case ExprType.XT_COUNT:
                 return new Size(name);
                 
@@ -428,9 +460,13 @@ public class Term extends Expression {
 
             case ExprType.INDEX:
             case ExprType.XT_CONTENT:
+            case ExprType.XT_DATATYPE_VALUE:
             case ExprType.XT_LOWERCASE:
             case ExprType.XT_UPPERCASE:
                 return new UnaryExtension(name);
+          
+            case ExprType.XT_CAST:
+                return new Cast(name, longName);
                 
             case ExprType.XT_FOCUS:
                 return new Focus(name);
@@ -447,6 +483,8 @@ public class Term extends Expression {
                 return new Prefix(name);
                 
             case ExprType.QNAME:
+            case ExprType.XT_EXPAND:
+            case ExprType.XT_DEFINE:
                 return new Namespace(name);
                 
             //case ExprType.STL_INDEX:
@@ -508,13 +546,21 @@ public class Term extends Expression {
                 
             case ExprType.LOAD:
             case ExprType.WRITE:
+            case ExprType.READ:
             case ExprType.XT_TUNE:
             case ExprType.SIM:                
             case ExprType.APP_SIM:                
             case ExprType.APPROXIMATE:
             case ExprType.DEPTH:
-            case ExprType.XT_EDGE:
+            case ExprType.XT_EDGES:
+            case ExprType.XT_SUBJECTS:  
+            case ExprType.XT_OBJECTS:    
             case ExprType.XT_EXISTS: 
+            case ExprType.XT_VALUE:                
+            case ExprType.XT_INSERT: 
+            case ExprType.XT_DELETE: 
+            case ExprType.XT_DEGREE:
+            case ExprType.XT_MINDEGREE:
             case ExprType.XT_MINUS:
             case ExprType.XT_JOIN:
             case ExprType.XT_OPTIONAL:
@@ -525,18 +571,23 @@ public class Term extends Expression {
             case ExprType.KGRAM: 
             case ExprType.STL_INDEX: 
             case ExprType.XT_TOGRAPH:
+            case ExprType.XT_SYNTAX:
                 return new GraphSpecificFunction(name);
                 
-            case ExprType.XT_VALUE:
+            case ExprType.XT_VALID_URI:
+                return new IOFunction(name);
+                
             case ExprType.XT_GRAPH:
             case ExprType.XT_SUBJECT:
             case ExprType.XT_OBJECT:
             case ExprType.XT_PROPERTY:
-            case ExprType.XT_INDEX:                 
+            case ExprType.XT_INDEX: 
+            case ExprType.XT_NODE:              
+            case ExprType.XT_VERTEX:              
                 return new GraphFunction(name);
                 
             case ExprType.XT_METADATA:
-            case ExprType.XT_CONTEXT:    
+            case ExprType.XT_CONTEXT:  
             case ExprType.XT_QUERY:    
             case ExprType.XT_FROM:    
             case ExprType.XT_NAMED:
@@ -648,7 +699,7 @@ public class Term extends Expression {
     @Override
     public String getModality() {
         return modality;
-    }
+    }   
 
     public static Term negation(Expression exp) {
         //return new Term(SENOT, exp);
@@ -731,12 +782,8 @@ public class Term extends Expression {
             sb.append(KeywordPP.OPEN_PAREN, SENOT);
             n = 1;
         } else if (isFunction()) {
-            if (!getName().equals(LIST)) {
-                if (getCName() != null) {
-                    getCName().toString(sb);
-                } else {
-                    sb.append(getName());
-                }
+            if (! getName().equals(LIST)) {
+                functionName(sb);
             }
             isope = false;
         }
@@ -777,6 +824,26 @@ public class Term extends Expression {
 
         return sb;
     }
+    
+    void functionName(ASTBuffer sb) {
+        if (sb.hasCompiler()) {
+            // JavaCompiler pretty print query AST to generate Java code
+            // we want Java function name
+            // use case: let(select where) in a function
+            String str = sb.getCompiler().getJavaName(getLongName());
+            if (str != null) {
+                sb.append(str);
+                return;
+            }
+        }
+        
+        if (getCName() != null) {
+            // when function name is prefix:namespace
+            getCName().toString(sb);
+        } else {
+            sb.append(getName());
+        }
+    }
 
     ASTBuffer funExist(ASTBuffer sb) {
         if (isSystem()) {
@@ -796,15 +863,12 @@ public class Term extends Expression {
         sb.append(")");
         return sb;
     }
-    
-    public String javaName() {
-        return NSManager.nstrip(getName());
-    }
-
+      
     @Override
-    public void toJava(JavaCompiler jc) {
-        jc.toJava(this);
+    public void toJava(JavaCompiler jc, boolean arg) {
+        jc.toJava(this, arg);
     }
+    
 
     static boolean isNegation(String name) {
         return (name.equals(STNOT) || name.equals(SENOT));
@@ -834,22 +898,24 @@ public class Term extends Expression {
         return ok;
     }
 
+    // when it is not compiled !
     @Override
-    public boolean isExist() {
+    public boolean isTermExist() {
         return getExist() != null;
     }
 
-    // when it is not compiled !
-    public boolean isTermExist() {
-        return getName().equals(EXIST);
+    @Override
+    public boolean isNotTermExist() {
+        return isNot() && getArg(0).isTermExist();
     }
 
+    @Override
     public boolean isTermExistRec() {
         if (isTermExist()) {
             return true;
         }
         for (Expression exp : getArgs()) {
-            if (exp.isTerm() && exp.getTerm().isTermExistRec()) {
+            if (exp.isTermExistRec()) {
                 return true;
             }
         }
@@ -857,16 +923,22 @@ public class Term extends Expression {
     }
 
     @Override
+    public boolean isExist() {
+        return getExist() != null;
+    }
+    
+    @Override
     public boolean isRecExist() {
-        if (isExist()) {
-            return true;
-        }
-        for (Expression exp : getArgs()) {
-            if (exp.isRecExist()) {
-                return true;
-            }
-        }
-        return false;
+        return isTermExistRec();
+//        if (isExist()) {
+//            return true;
+//        }
+//        for (Expression exp : getArgs()) {
+//            if (exp.isRecExist()) {
+//                return true;
+//            }
+//        }
+//        return false;
     }
     
     @Override
@@ -991,6 +1063,7 @@ public class Term extends Expression {
         return term;
     }
 
+    @Override
     void getConstants(List<Constant> list) {
         if (isNot()) {
             // ! p is a problem because we do not know the predicate nodes ...
@@ -1363,7 +1436,7 @@ public class Term extends Expression {
         return (str.equals(Processor.UNNEST)
                 || str.equals(Processor.KGUNNEST)
                 || str.equals(Processor.SQL)
-                || str.equals(XPATH)
+                //|| str.equals(XPATH)
                 || //str.equals(Processor.SPARQL) ||
                 str.equals(Processor.EXTERN));
     }
@@ -1449,31 +1522,53 @@ public class Term extends Expression {
         return this;
     }
 
+    
     /**
-     * KGRAM
+     * Variables of filter and filter exists
+     * Runtime version (Query)
      */
-    // Filter
     @Override
     public void getVariables(List<String> list, boolean excludeLocal) {
         for (Expression ee : getArgs()) {
             ee.getVariables(list, excludeLocal);
         }
         if (oper() == ExprType.EXIST && getPattern() != null) {
+            // runtime: compiled kgram Exp
+            // return exists BGP variables except right part of minus
+            // **and** filter variables **and** recursively in sub exists
+            // use case: list of filter variables relevant for placing a filter in a BGP when sorting
+            // see kgram QuerySorter sortFilter()
             getPattern().getVariables(list, excludeLocal);
         }
         else if (getExist() != null) {
-            // when used before compiling
-            // use case: visitor
-            List<Variable> varList = getExist().getVariables();
+            // compile time: return subscope variables:  surely bound in exists {}
+            // when exists { filter f }, variables of filter f are not returned
+            List<Variable> varList = getExist().getSubscopeVariables();
             for (Variable var : varList) {
                 var.getVariables(list, excludeLocal);
             }
         }
     }
+    
+    /**
+     * Filter variables
+     * if scope.isExist()  collect exists {} variables, default is true
+     * if scope.isFilter() collect filter variables within exists { .. filter f } default is false
+     * compile time version (AST)
+     */
+    @Override
+    void getVariables(VariableScope scope, List<Variable> list) {
+        for (Expression ee : getArgs()) {
+            ee.getVariables(scope, list);
+        }
+        if (getExist() != null && scope.isExist()) {
+            getExist().getVariables(scope, list);
+        }
+    }
 
     // this = xt:fun(?x, ?y)
     List<Variable> getFunVariables() {
-        ArrayList<Variable> list = new ArrayList<Variable>();
+        ArrayList<Variable> list = new ArrayList<>();
         for (Expression exp : getArgs()) {
             if (exp.isVariable()) {
                 list.add(exp.getVariable());
@@ -1551,25 +1646,18 @@ public class Term extends Expression {
 
     @Override
     public ExpPattern getPattern() {
-//        if (proc == null) {
-//            return null;
-//        }
-//        return proc.getPattern();
         return pattern;
     }
 
     public void setPattern(ExpPattern pat) {
         pattern = pat;
-//        if (proc != null) {            
-//            proc.setPattern(pat);
-//        }
     }
 
     void setExist(Exist exp) {
         exist = exp;
     }
 
-    public Exp getExist() {
+    public Exist getExist() {
         return exist;
     }
 
@@ -1582,6 +1670,19 @@ public class Term extends Expression {
             return null;
         }
         return exist.getContent();
+    } 
+    
+    public Exp getExistBGP() {
+        if (exist == null) {
+            return null;
+        }
+        return exist.getBGP();
+    }
+    
+    public void setExistBGP(Exp exp) {
+        if (exist != null) {
+            exist.setBGP(exp);
+        }
     }
 
     // Exp
@@ -1713,6 +1814,15 @@ public class Term extends Expression {
 
     @Override
     public Term getTerm() {
+        return this;
+    }
+    
+    // PRAGMA: this is term(exists{}) or not(term(exists{}))
+    @Override
+    public Term getTermExist() {
+        if (isNot()) {
+            return getArg(0).getTermExist();
+        }
         return this;
     }
 

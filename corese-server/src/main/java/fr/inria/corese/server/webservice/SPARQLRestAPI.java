@@ -35,6 +35,8 @@ import fr.inria.corese.core.print.JSONLDFormat;
 import fr.inria.corese.core.print.ResultFormat;
 import fr.inria.corese.core.print.TSVFormat;
 import fr.inria.corese.core.print.TripleFormat;
+import fr.inria.corese.sparql.triple.parser.Access;
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * KGRAM SPARQL endpoint exposed as a rest web service.
@@ -95,6 +97,7 @@ public class SPARQLRestAPI {
         boolean owl = owlrl.equals("true");
         boolean ld = load.equals("true");
         localProfile = profile;
+        System.out.println("entailment: " + ent);
         store = new TripleStore(ent, owl);
         init(localhost.equals("true"));
         if (ld) {
@@ -157,7 +160,7 @@ public class SPARQLRestAPI {
             // path with extension : use extension
             // path with no extension : load as turtle
             // use case: rdf: is in Turtle
-            if (getTripleStore().getMode() != QueryProcess.PROTECT_SERVER_MODE) {
+            if (! getTripleStore().isProtect()) { //getMode() != QueryProcess.PROTECT_SERVER_MODE) {
                 getTripleStore().load(remotePath, source);
             }
         } catch (LoadException ex) {
@@ -230,32 +233,52 @@ public class SPARQLRestAPI {
 
     @GET
     @Produces({"application/sparql-results+xml", "application/xml", "text/plain"})
-    public Response getTriplesXMLForGet(@QueryParam("query") String query, @QueryParam("default-graph-uri") List<String> defaultGraphUris, @QueryParam("named-graph-uri") List<String> namedGraphUris) {
+    public Response getTriplesXMLForGet(@javax.ws.rs.core.Context HttpServletRequest request,
+            @QueryParam("query") String query, 
+            @QueryParam("default-graph-uri") List<String> defaultGraphUris, 
+            @QueryParam("named-graph-uri")   List<String> namedGraphUris,
+            @QueryParam ("format")           String format) {
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Get SPARQL Result XML/plain: " + query);
             if (query == null)
                 throw new Exception("No query");
 
-            Mappings map = getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris));
-            return Response.status(200).header(headerAccept, "*").entity(ResultFormat.create(map).toString()).build();
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
+            if (format != null && format.equals("json")) {
+                String res = String.format("<div>%s</div>", JSONFormat.create(map).toString());
+                return Response.status(200).header(headerAccept, "*").entity(res).build();                
+            }
+            String res = getResult(map, format);
+            return Response.status(200).header(headerAccept, "*").entity(res).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
             return Response.status(ERROR).header(headerAccept, "*").entity("Error while querying the remote KGRAM engine").build();
         }
     }
+    
+    String getResult(Mappings map, String format) {
+        if (format != null) {
+            System.out.println("format: " + format);
+            if (format.equals("application/sparql-results+json")) {
+                return JSONFormat.create(map).toString(); 
+            }
+        } 
+        return ResultFormat.create(map).toString();
+    }
 
     @GET
     @Produces("application/sparql-results+json")
-    public Response getTriplesJSONForGet(@QueryParam("query") String query, @QueryParam("default-graph-uri") List<String> defaultGraphUris,
-                                         @QueryParam("named-graph-uri") List<String> namedGraphUris) {
+    public Response getTriplesJSONForGet(@javax.ws.rs.core.Context HttpServletRequest request,
+            @QueryParam("query") String query, @QueryParam("default-graph-uri") List<String> defaultGraphUris,
+            @QueryParam("named-graph-uri") List<String> namedGraphUris) {
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Get SPARQL Result JOSN: " + query);
             if (query == null)
                 throw new Exception("No query");
 
-            Mappings map = getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris));
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
             return Response.status(200).header(headerAccept, "*").entity(JSONFormat.create(map).toString()).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
@@ -385,8 +408,12 @@ public class SPARQLRestAPI {
     @POST
     @Produces({"application/sparql-results+xml", "application/xml", "text/plain"})
     @Consumes("application/sparql-query")
-    public Response getXMLForPost(@DefaultValue("") @QueryParam("query") String query, @QueryParam("default-graph-uri") List<String> defaultGraphUris,
-                                  @QueryParam("named-graph-uri") List<String> namedGraphUris, String message) {
+    public Response getXMLForPost(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @QueryParam("query") String query, 
+            @QueryParam("default-graph-uri") List<String> defaultGraphUris,
+            @QueryParam("named-graph-uri") List<String> namedGraphUris, 
+            @QueryParam ("format")  String format,
+            String message) {
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result XML: " + query);
@@ -395,8 +422,9 @@ public class SPARQLRestAPI {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result XML/plain: " + query);
 
-            Mappings map = getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris));
-            return Response.status(200).header(headerAccept, "*").entity(ResultFormat.create(map).toString()).build();
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
+            String res = getResult(map, format);
+            return Response.status(200).header(headerAccept, "*").entity(res).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
             return Response.status(ERROR).header(headerAccept, "*").entity("Error while querying the remote KGRAM engine").build();
@@ -407,8 +435,11 @@ public class SPARQLRestAPI {
     @POST
     @Produces({"application/sparql-results+xml", "application/xml", "text/plain"})
     @Consumes("application/x-www-form-urlencoded")
-    public Response getTriplesXMLForPost(@DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
-                                         @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
+    public Response getTriplesXMLForPost(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
+            @FormParam("named-graph-uri") List<String> namedGraphUris, 
+            @QueryParam ("format")  String format,
+            String message) {
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result XML/plain: " + query);
@@ -417,8 +448,31 @@ public class SPARQLRestAPI {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result XML/plain: " + query);
 
-            Mappings map = getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris));
-            return Response.status(200).header(headerAccept, "*").entity(ResultFormat.create(map).toString()).build();
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
+            String res = getResult(map, format);
+            return Response.status(200).header(headerAccept, "*").entity(res).build();
+        } catch (Exception ex) {
+            logger.error("Error while querying the remote KGRAM engine", ex);
+            return Response.status(ERROR).header(headerAccept, "*").entity("Error while querying the remote KGRAM engine").build();
+        }
+    }
+    
+    
+    
+    @POST
+    @Produces("application/sparql-results+json")
+    @Consumes("application/sparql-query")
+    // @Path("json")
+    public Response getTriplesJSONForPostNew(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @QueryParam("query") String query, 
+            @QueryParam("default-graph-uri") List<String> defaultGraphUris,
+            @QueryParam("named-graph-uri") List<String> namedGraphUris) {
+        try {            
+            if (logger.isDebugEnabled())
+                logger.debug("Rest Post SPARQL Result JSON: " + query);
+
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
+            return Response.status(200).header(headerAccept, "*").entity(JSONFormat.create(map).toString()).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
             return Response.status(ERROR).header(headerAccept, "*").entity("Error while querying the remote KGRAM engine").build();
@@ -430,15 +484,16 @@ public class SPARQLRestAPI {
     @Produces("application/sparql-results+json")
     @Consumes("application/x-www-form-urlencoded")
     // @Path("json")
-    public Response getTriplesJSONForPost(@DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
-                                          @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
+    public Response getTriplesJSONForPost(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
+            @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
         try {
             if (query.equals(""))
                 query = message;
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result JSON: " + query);
 
-            Mappings map = getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris));
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
             return Response.status(200).header(headerAccept, "*").entity(JSONFormat.create(map).toString()).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
@@ -489,15 +544,16 @@ public class SPARQLRestAPI {
     @POST
     @Produces("application/rdf+xml")
     @Consumes("application/x-www-form-urlencoded")
-    public Response getRDFGraphXMLForPost(@DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
-                                          @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
+    public Response getRDFGraphXMLForPost(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
+            @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
         try {
             if (query.equals(""))
                 query = message;
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post RDF XML: " + query);
 
-            Mappings map = getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris));
+            Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
             return Response.status(200).header(headerAccept, "*").entity(ResultFormat.create(map).toString()).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
@@ -508,13 +564,16 @@ public class SPARQLRestAPI {
     @POST
     @Produces({"text/turtle", "application/turtle", "text/nt"})
     @Consumes("application/x-www-form-urlencoded")
-    public Response getRDFGraphNTripleForPost(@DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
-                                              @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
+    public Response getRDFGraphNTripleForPost(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
+            @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post RDF NT: " + query);
 
-            return Response.status(200).header(headerAccept, "*").entity(TripleFormat.create(getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris))).toString()).build();
+            return Response.status(200).header(headerAccept, "*")
+                    .entity(TripleFormat.create(getTripleStore()
+                            .query(request, query, createDataset(defaultGraphUris, namedGraphUris))).toString()).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
             return Response.status(ERROR).header(headerAccept, "*").entity("Error while querying the remote KGRAM engine").build();
@@ -524,13 +583,16 @@ public class SPARQLRestAPI {
     @POST
     @Produces({"application/json", "application/ld+json"})
     @Consumes("application/x-www-form-urlencoded")
-    public Response getRDFGraphJsonLDForPost(@DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
-                                             @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
+    public Response getRDFGraphJsonLDForPost(@javax.ws.rs.core.Context HttpServletRequest request,
+            @DefaultValue("") @FormParam("query") String query, @FormParam("default-graph-uri") List<String> defaultGraphUris,
+            @FormParam("named-graph-uri") List<String> namedGraphUris, String message) {
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post RDF JSON-LD: " + query);
 
-            return Response.status(200).header(headerAccept, "*").entity(JSONLDFormat.create(getTripleStore().query(query, createDataset(defaultGraphUris, namedGraphUris))).toString()).build();
+            return Response.status(200).header(headerAccept, "*")
+                    .entity(JSONLDFormat.create(getTripleStore()
+                    .query(request, query, createDataset(defaultGraphUris, namedGraphUris))).toString()).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
             return Response.status(ERROR).header(headerAccept, "*").entity("Error while querying the remote KGRAM engine").build();
@@ -611,6 +673,7 @@ public class SPARQLRestAPI {
                 c = new Context();
             }
             c.setUserQuery(true);
+            c.setLevel(Access.getQueryAccessLevel(true, false));
         }
         if (c != null || ((defaultGraphUris != null) && (!defaultGraphUris.isEmpty())) || ((namedGraphUris != null) && (!namedGraphUris.isEmpty()))) {
             Dataset ds = Dataset.instance(defaultGraphUris, namedGraphUris);

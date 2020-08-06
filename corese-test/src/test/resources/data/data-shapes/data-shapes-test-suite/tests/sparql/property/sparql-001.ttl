@@ -8,6 +8,13 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+<http://datashapes.org/sh/tests/sparql/property/sparql-001.test>  sh:declare [
+      rdf:type sh:PrefixDeclaration ;
+      sh:namespace "http://datashapes.org/sh/tests/sparql/property/sparql-001.test#"^^xsd:anyURI ;
+      sh:prefix "ex" ;
+    ] 
+.
+
 ex:Country
   rdf:type rdfs:Class ;
 .
@@ -17,18 +24,19 @@ ex:InvalidCountry
 .
 ex:LanguageExamplePropertyShape
   rdf:type sh:PropertyShape ;
-  sh:path ex:germanLabel ;
+ # sh:path ex:germanLabel ;
   sh:sparql ex:LanguageExamplePropertyShape-sparql ;
   sh:targetClass ex:Country ;
 .
 ex:LanguageExamplePropertyShape-sparql
   rdf:type sh:SPARQLConstraint ;
   sh:message "Values are literals with German language tag." ;
-  sh:prefixes ex: ;
+  sh:prefixes <http://datashapes.org/sh/tests/sparql/property/sparql-001.test> ;
   sh:select """
-		SELECT $this ?value
+		SELECT $this ?value $path
 		WHERE {
-			$this $PATH ?value .
+            bind (ex:germanLabel as $path)
+			$this $path ?value .
 			FILTER (!isLiteral(?value) || !langMatches(lang(?value), \"de\"))
 		}
 		""" ;

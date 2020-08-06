@@ -16,6 +16,8 @@ import static fr.inria.corese.kgram.api.core.ExprType.XT_APPEND;
 import static fr.inria.corese.kgram.api.core.ExprType.XT_MERGE;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Producer;
+import fr.inria.corese.sparql.triple.parser.Expression;
+import fr.inria.corese.sparql.triple.parser.Processor;
 import java.util.List;
 
 /**
@@ -42,14 +44,21 @@ public class Reduce extends Funcall {
             return null;
         }
                 
-        Function function = (Function) eval.getDefineGenerate(this, env, name.stringValue(), 2);
+        Function function = eval.getDefineGenerate(this, env, name.stringValue(), 2);
+        if (function == null) {
+            return null;
+        }
         IDatatype dt = param[0];
         if (! dt.isList()) {
             return null;
         }
         List<IDatatype> list = dt.getValues();
         if (list.isEmpty()){
-            return neutral(function, dt);
+            IDatatype res = neutral(function, name, dt);
+            if (res == dt) {
+                return neutral(eval, b, env, p, name, dt);
+            }
+            return res;
         }
         IDatatype[] value = new IDatatype[2];
         IDatatype res = list.get(0);
@@ -68,8 +77,16 @@ public class Reduce extends Funcall {
         return res;
     }
     
-    IDatatype neutral(Expr exp, IDatatype dt){
-        switch (exp.oper()){
+    int functionOper(Function exp) {
+        Expression body = exp.getBody();
+        if (body.isTerm()) {
+            return body.oper();
+        }
+        return -1;
+    }
+    
+    IDatatype neutral(Function exp, IDatatype name, IDatatype dt){
+        switch (functionOper(exp)){
             case OR:
                 return FALSE;
                 
@@ -89,10 +106,19 @@ public class Reduce extends Funcall {
                 
             case XT_APPEND:
             case XT_MERGE:
-                return DatatypeMap.EMPTY_LIST;
+                return DatatypeMap.createList();
                 
             default: return dt;
         }
+    }
+    
+    // fun with no arg returns neutral element
+    IDatatype neutral(Computer eval, Binding b, Environment env, Producer p, IDatatype name, IDatatype dt) {
+        Function function = (Function) eval.getDefineGenerate(this, env, name.stringValue(), 0);
+        if (function == null) {
+            return dt;
+        }
+        return call(eval, b, env, p, function);   
     }
     
     

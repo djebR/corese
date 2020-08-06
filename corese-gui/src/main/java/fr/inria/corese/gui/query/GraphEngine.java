@@ -21,6 +21,8 @@ import fr.inria.corese.core.load.Build;
 import fr.inria.corese.core.load.Load;
 import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.load.LoadPlugin;
+import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.triple.parser.AccessRight;
 import fr.inria.corese.sparql.triple.parser.Constant;
 import java.util.Date;
 import org.apache.logging.log4j.Logger;
@@ -46,6 +48,7 @@ public class GraphEngine  {
      */
     public void setLinkedFunction(boolean linkedFunction) {
         this.linkedFunction = linkedFunction;
+        Access.setLinkedFunction(linkedFunction);
     }
     private static Logger logger = LogManager.getLogger(GraphEngine.class);
 	static final String BRUL = "brul";
@@ -103,6 +106,14 @@ public class GraphEngine  {
                     case Command.REENTRANT:
                         QueryProcess.setOverwrite(true);
                         break;
+                    case Command.RDF_STAR:
+                        Graph.setEdgeMetadataDefault(true);
+                        break;
+                    case Command.ACCESS:
+                        AccessRight.setActive(true);
+                        break;
+                            
+                        
                 }
             }
         }
@@ -148,7 +159,7 @@ public class GraphEngine  {
 		//load.setEngine(rengine);
 		load.setEngine(qengine);
 		load.setPlugin(plugin);
-		load.setBuild(build);
+		//load.setBuild(build);
 		return load;
 	}
 	
@@ -156,9 +167,9 @@ public class GraphEngine  {
 		plugin = p;
 	}
 	
-	public void setBuild(Build b){
-		build = b;
-	}
+//	public void setBuild(Build b){
+//		build = b;
+//	}
 	
 	public void load(String path) throws EngineException, LoadException {
 //		if (path.endsWith(BRUL)){
@@ -199,10 +210,10 @@ public class GraphEngine  {
 	}
         
         // TODO: clean timestamp, clean graph index
-        public void setOWLRL(boolean run, boolean lite, boolean trace) {
+        public void setOWLRL(boolean run, int owl, boolean trace) {
             if (run){
                 owlEngine = RuleEngine.create(graph);
-                owlEngine.setProfile((lite)? RuleEngine.OWL_RL_LITE: RuleEngine.OWL_RL);
+                owlEngine.setProfile(owl);
                 owlEngine.setTrace(trace);
                 Date d1 = new Date();
                 // disconnect RDFS entailment during OWL processing

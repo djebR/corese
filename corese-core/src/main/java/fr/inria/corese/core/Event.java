@@ -14,12 +14,12 @@ public enum Event {
     
     InitGraph,
     IndexNodeManager, IndexNodeManagerReduce, ClearNodeManager,
-    IndexGraph,
+    IndexGraph, IndexMetadata,
     
     Query, Construct, Rule, 
     Service,
     LoadAPI, LoadStep, // load()
-    Update,
+    Update, UpdateStep,
     LoadUpdate, // SPARQL Update load
     DeleteInsert, DeleteData, InsertData, 
     Delete, Insert,

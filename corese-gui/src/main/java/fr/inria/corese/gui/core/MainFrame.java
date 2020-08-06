@@ -51,8 +51,12 @@ import fr.inria.corese.kgram.event.Event;
 import fr.inria.corese.core.Graph;
 import fr.inria.corese.core.load.Load;
 import fr.inria.corese.core.load.LoadException;
+import fr.inria.corese.core.query.QueryProcess;
+import fr.inria.corese.core.rule.RuleEngine;
 import fr.inria.corese.core.transform.TemplatePrinter;
+import fr.inria.corese.shex.shacl.Shex;
 import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -75,14 +79,17 @@ public class MainFrame extends JFrame implements ActionListener {
     /**
      *
      */
+    static MainFrame singleton ;
     private static final long serialVersionUID = 1L;
     private static final int LOAD = 1;
-    private static final String TITLE = "Corese 4.1 - Wimmics INRIA I3S - 2019-04-01";
+    private static final String TITLE = "Corese 4.1 - Wimmics INRIA I3S - 2020-07-14";
     // On déclare notre conteneur d'onglets
     protected static JTabbedPane conteneurOnglets;
     // Compteur pour le nombre d'onglets query créés
     private ArrayList<Integer> nbreTab = new ArrayList<Integer>();
     private String lCurrentPath = "user/home";
+    private String lCurrentRule = "user/home";
+
     private String lPath;
     private String fileName = "";
     //Variable true ou false pour déterminer le mode Kgram ou Corese
@@ -91,11 +98,13 @@ public class MainFrame extends JFrame implements ActionListener {
     // Pour le menu
     private JMenuItem loadRDF;
     private JMenuItem loadRDFs;
+    private JMenuItem loadSHACL, loadShex;
+    private JMenuItem loadSHACLShape;
     private JMenuItem loadQuery;
     private JMenuItem execWorkflow, loadWorkflow, loadRunWorkflow;
     private JMenuItem loadRule;
     private JMenuItem loadStyle;
-    private JMenuItem cpTransform;
+    private JMenuItem cpTransform, shex;
     private JMenuItem saveQuery;
     private JMenuItem saveResult;
     private JMenuItem loadAndRunRule;
@@ -123,17 +132,19 @@ public class MainFrame extends JFrame implements ActionListener {
     private JMenuItem map;
     private JMenuItem success;
     private JMenuItem quit;
-    private JMenuItem iselect, igraph, iconstruct, iask, idescribe,
+    private JMenuItem iselect, iselecttuple, igraph, iconstruct, iask, idescribe,
             iserviceCorese, iserviceDBpedia, ifederate,
             iinsert, iinsertdata, idelete, ideleteinsert,
-            iturtle, irdfxml, ijson, itrig, ispin, iowl, itypecheck,
+            iturtle, in3, irdfxml, ijson, itrig, ispin, iowl, 
             ientailment, irule, isystem, iprovenance, iindex, ifunction, ical;
+    private JMenuItem itypecheck, ipredicate, ipredicatepath;
     HashMap<Object, String> itable;
     private JCheckBox checkBoxQuery;
     private JCheckBox checkBoxRule;
     private JCheckBox checkBoxVerbose;
     private JCheckBox checkBoxLoad;
-    private JCheckBox cbrdfs, cbowlrl, cbowlrllite, cbtrace, cbnamed;
+    private JCheckBox cbrdfs, cbowlrl, cbowlrllite, cbowlrlext, cbtrace, cbnamed;
+    private JCheckBox cbshexClosed, cbshexExtend, cbshexCard, cbshexshex;
     private JMenuItem validate;
     //style correspondant au graphe
     private String defaultStylesheet, saveStylesheet;
@@ -148,8 +159,10 @@ public class MainFrame extends JFrame implements ActionListener {
     protected int selected;
     // Texte dans l'onglet requête
     private String textQuery;
+    private static final String SHACL_SHACL = NSManager.SHACL_SHACL;
     // Texte par défaut dans l'onglet requête
     private static final String DEFAULT_SELECT_QUERY = "select.rq";
+    private static final String DEFAULT_TUPLE_QUERY = "selecttuple.rq";
     private static final String DEFAULT_GRAPH_QUERY = "graph.rq";
     private static final String DEFAULT_CONSTRUCT_QUERY = "construct.rq";
     private static final String DEFAULT_ASK_QUERY = "ask.rq";
@@ -186,6 +199,9 @@ public class MainFrame extends JFrame implements ActionListener {
     private static final String URI_GRAPHSTREAM = "http://graphstream-project.org/";
     int nbTabs = 0;
     
+    boolean shexClosed = true, shexCard = true, shexExtend = true;
+    private boolean shexSemantics = false;
+    
     Command cmd;
 
     static {
@@ -201,8 +217,9 @@ public class MainFrame extends JFrame implements ActionListener {
      * @param pPropertyPath
      */
     public MainFrame(CaptureOutput aCapturer, String[] args) {
-        super();  
-        cmd = new Command(args);
+        super(); 
+        Access.setMode(Access.Mode.GUI); // before command
+        cmd = new Command(args).init();
         this.setTitle(TITLE);
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         this.setSize(900, 700);
@@ -433,6 +450,18 @@ public class MainFrame extends JFrame implements ActionListener {
         loadRDF = new JMenuItem("3 - Load RDF");
         loadRDF.addActionListener(this);
         loadRDF.setToolTipText("Step 3 : Load RDF file");
+        
+        loadSHACL = new JMenuItem("Load SHACL");
+        loadSHACL.addActionListener(this);
+        loadSHACL.setToolTipText("Load SHACL");
+        
+        loadSHACLShape = new JMenuItem("Load SHACL Shape Validator");
+        loadSHACLShape.addActionListener(this);
+        loadSHACLShape.setToolTipText("Load SHACL Shape Validator");
+        
+        loadShex = new JMenuItem("Load Shex");
+        loadShex.addActionListener(this);
+        loadShex.setToolTipText("Load Shex");
 
         execWorkflow = new JMenuItem("Process Workflow");
         execWorkflow.addActionListener(this);
@@ -448,6 +477,9 @@ public class MainFrame extends JFrame implements ActionListener {
 
         cpTransform = new JMenuItem("Compile Transformation");
         cpTransform.addActionListener(this);
+        
+        shex = new JMenuItem("Translate Shex to Shacl");
+        shex.addActionListener(this);
 
         loadStyle = new JMenuItem("Load Style");
         loadStyle.addActionListener(this);
@@ -461,6 +493,7 @@ public class MainFrame extends JFrame implements ActionListener {
         itable = new HashMap<Object, String>();
 
         iselect = defItem("Select", DEFAULT_SELECT_QUERY);
+        iselecttuple = defItem("Select Tuple", DEFAULT_TUPLE_QUERY);
         igraph = defItem("Graph", DEFAULT_GRAPH_QUERY);
         iconstruct = defItem("Construct", DEFAULT_CONSTRUCT_QUERY);
         iask = defItem("Ask", DEFAULT_ASK_QUERY);
@@ -483,13 +516,17 @@ public class MainFrame extends JFrame implements ActionListener {
         iprovenance = defItem("Provenance", DEFAULT_PROVENANCE_QUERY);
 
         iturtle = defItem("Turtle", DEFAULT_TEMPLATE_QUERY);
+        in3 = defItem("NTriple", "n3.rq");
         irdfxml = defItem("RDF/XML", DEFAULT_RDF_XML_QUERY);
         ijson = defItem("JSON", "json.rq");
         itrig = defItem("Trig", DEFAULT_TRIG_QUERY);
         ispin = defItem("SPIN", DEFAULT_SPIN_QUERY);
         iowl = defItem("OWL", DEFAULT_OWL_QUERY);
-        itypecheck = defItem("TypeCheck", DEFAULT_TYPECHECK_QUERY);
-
+        
+        itypecheck = defItem("Engine",   "shacl/typecheck.rq");
+        ipredicate = defItem("Predicate", "shacl/predicate.rq");
+        ipredicatepath = defItem("Predicate Path", "shacl/predicatepath.rq");
+        
         loadAndRunRule = new JMenuItem("Load&Run Rule");
         loadAndRunRule.addActionListener(this);
         cut = new JMenuItem("Cut");
@@ -539,9 +576,16 @@ public class MainFrame extends JFrame implements ActionListener {
         quit = new JMenuItem("Quit");
         cbtrace = new JCheckBox("Trace");
         cbrdfs = new JCheckBox("RDFS");
+        cbowlrlext = new JCheckBox("OWL RL Extended");
         cbowlrllite = new JCheckBox("OWL RL Lite");
         cbowlrl = new JCheckBox("OWL RL");
         cbnamed = new JCheckBox("Load Named");
+        
+        cbshexCard   =  new JCheckBox("Cardinality");
+        cbshexClosed =  new JCheckBox("Closed");
+        cbshexExtend =  new JCheckBox("Shacl Extension");
+        cbshexshex =  new JCheckBox("Shex Semantics");
+        
         checkBoxLoad = new JCheckBox("Load");
         checkBoxQuery = new JCheckBox("Query");
         checkBoxRule = new JCheckBox("Rule");
@@ -571,6 +615,9 @@ public class MainFrame extends JFrame implements ActionListener {
         JMenu debugMenu = new JMenu("Debug");
         JMenu queryMenu = new JMenu("Query");
         JMenu templateMenu = new JMenu("Template");
+        JMenu shaclMenu = new JMenu("Shacl");
+        JMenu shexMenu = new JMenu("Shex");
+        JMenu eventMenu = new JMenu("Event");        
         JMenu explainMenu = new JMenu("Explain");
         JMenu aboutMenu = new JMenu("?");
 
@@ -578,17 +625,22 @@ public class MainFrame extends JFrame implements ActionListener {
         fileMenu.add(loadRDFs);
         fileMenu.add(loadRule);
         fileMenu.add(loadRDF);
+        fileMenu.add(loadSHACL);
+        fileMenu.add(loadSHACLShape);
+        fileMenu.add(loadShex);
         fileMenu.add(loadQuery);
         fileMenu.add(loadWorkflow);
         fileMenu.add(loadRunWorkflow);
         fileMenu.add(execWorkflow);
         fileMenu.add(cpTransform);
+        fileMenu.add(shex);
         fileMenu.add(saveQuery);
         fileMenu.add(saveResult);
         fileMenu.add(loadAndRunRule);
         fileMenu.add(loadStyle);
 
         queryMenu.add(iselect);
+        queryMenu.add(iselecttuple);
         queryMenu.add(igraph);
         queryMenu.add(iconstruct);
         queryMenu.add(iask);
@@ -611,13 +663,36 @@ public class MainFrame extends JFrame implements ActionListener {
         explainMenu.add(iindex);
 
         templateMenu.add(iturtle);
+        templateMenu.add(in3);
         templateMenu.add(irdfxml);
         templateMenu.add(ijson);
         templateMenu.add(itrig);
         templateMenu.add(iowl);
         templateMenu.add(ispin);
+        
+        shaclMenu.add(itypecheck);
+        shaclMenu.add(defItem("Fast Engine", "shacl/fastengine.rq"));
+        shaclMenu.add(ipredicate);
+        shaclMenu.add(ipredicatepath);
+        shaclMenu.add(defItem("Constraint Function", "shacl/extension.rq"));
+        shaclMenu.add(defItem("Path Function", "shacl/funpath.rq"));
+        shaclMenu.add(defItem("Path Linked Data", "shacl/service.rq"));
+        
+        shexMenu.add(cbshexCard);
+        //shexMenu.add(cbshexClosed);
+        shexMenu.add(cbshexExtend);
+        //shexMenu.add(cbshexshex);
+        
+        eventMenu.add(defItemFunction("SPARQL Query",   "event/query.rq"));
+        eventMenu.add(defItemFunction("SPARQL Update",  "event/update.rq"));
+        eventMenu.add(defItemFunction("SHACL",          "event/shacl.rq"));
+        eventMenu.add(defItemFunction("Rule",           "event/rule.rq"));
+        eventMenu.add(defItemFunction("Entailment",     "event/entailment.rq"));
 
-        templateMenu.add(itypecheck);
+        eventMenu.add(defItemFunction("Unit",           "event/unit.rq"));
+        eventMenu.add(defItemFunction("Romain",         "event/romain.rq"));
+        eventMenu.add(defItemFunction("XML",            "event/xml.rq"));
+        eventMenu.add(defItemFunction("JSON",           "event/json.rq"));
 
         editMenu.add(undo);
         editMenu.add(redo);
@@ -639,6 +714,7 @@ public class MainFrame extends JFrame implements ActionListener {
         engineMenu.add(cbrdfs);
         engineMenu.add(cbowlrl);
         engineMenu.add(cbowlrllite);
+        engineMenu.add(cbowlrlext);
         engineMenu.add(cbtrace);
         engineMenu.add(cbnamed);
         myRadio.add(kgramBox);
@@ -736,6 +812,46 @@ public class MainFrame extends JFrame implements ActionListener {
                 Load.setDefaultGraphValue(!cbnamed.isSelected());
             }
         });
+        
+        cbshexClosed.setEnabled(true);
+        cbshexClosed.setSelected(true);
+        cbshexClosed.addItemListener(
+                new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                shexClosed = cbshexClosed.isSelected();
+            }
+        });
+        
+        cbshexCard.setEnabled(true);
+        cbshexCard.setSelected(true);
+        cbshexCard.addItemListener(
+                new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                shexCard = cbshexCard.isSelected();
+            }
+        });
+        
+        cbshexExtend.setEnabled(true);
+        cbshexExtend.setSelected(true);
+        cbshexExtend.addItemListener(
+                new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                shexExtend = cbshexExtend.isSelected();
+            }
+        });
+        
+        
+        cbshexshex.setEnabled(true);
+        cbshexshex.setSelected(false);
+        cbshexshex.addItemListener(new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                setShexSemantics(cbshexshex.isSelected());
+            }
+        });
 
         cbowlrl.setEnabled(true);
         cbowlrl.setSelected(false);
@@ -743,7 +859,7 @@ public class MainFrame extends JFrame implements ActionListener {
                 new ItemListener() {
             @Override
             public void itemStateChanged(ItemEvent e) {
-                setOWLRL(cbowlrl.isSelected(), false);
+                setOWLRL(cbowlrl.isSelected(), RuleEngine.OWL_RL);
             }
         });
 
@@ -753,7 +869,18 @@ public class MainFrame extends JFrame implements ActionListener {
                 new ItemListener() {
             @Override
             public void itemStateChanged(ItemEvent e) {
-                setOWLRL(cbowlrllite.isSelected(), true);
+                setOWLRL(cbowlrllite.isSelected(), RuleEngine.OWL_RL_LITE);
+            }
+        });
+        
+        
+        cbowlrlext.setEnabled(true);
+        cbowlrlext.setSelected(false);
+        cbowlrlext.addItemListener(
+                new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                setOWLRL(cbowlrlext.isSelected(), RuleEngine.OWL_RL_EXT);
             }
         });
 
@@ -819,6 +946,9 @@ public class MainFrame extends JFrame implements ActionListener {
         menuBar.add(debugMenu);
         menuBar.add(queryMenu);
         menuBar.add(templateMenu);
+        menuBar.add(shaclMenu);
+        menuBar.add(shexMenu);
+        menuBar.add(eventMenu);
         menuBar.add(explainMenu);
         menuBar.add(aboutMenu);
 
@@ -845,12 +975,20 @@ public class MainFrame extends JFrame implements ActionListener {
         itable.put(it, query);
         return it;
     }
-
+    
     JMenuItem defItem(String name, String q) {
+        return defItemBasic(QUERY, name, q);
+    }
+    
+    JMenuItem defItemFunction(String name, String q) {
+        return defItemBasic("/function/", name, q);
+    }
+
+    JMenuItem defItemBasic(String root, String name, String q) {
         JMenuItem it = new JMenuItem(name);
         it.addActionListener(this);
         try {
-            String str = read(QUERY + q);
+            String str = read(root + q);
             itable.put(it, str);
         } catch (LoadException ex) {
             LOGGER.error(ex);
@@ -860,9 +998,9 @@ public class MainFrame extends JFrame implements ActionListener {
         return it;
     }
 
-    private void setOWLRL(boolean selected, boolean lite) {
+    private void setOWLRL(boolean selected, int owl) {
         Entailment e = new Entailment(myCorese);
-        e.setOWLRL(selected, lite);
+        e.setOWLRL(selected, owl);
         e.setTrace(trace);
         e.process();
     }
@@ -880,9 +1018,16 @@ public class MainFrame extends JFrame implements ActionListener {
         } else if (e.getSource() == loadRule) {
             loadRule();
         } //Appelle la fonction pour le chargement d'un fichier RDF
-        else if (e.getSource() == loadRDF) {
+        else if (e.getSource() == loadRDF || e.getSource() == loadSHACL) {
             loadRDF();
-        } else if (e.getSource() == execWorkflow) {
+        } 
+        else if (e.getSource() == loadSHACLShape) {
+            basicLoad(SHACL_SHACL);
+        } 
+        else if (e.getSource() == loadShex) {
+            shex(true);
+        }
+        else if (e.getSource() == execWorkflow) {
             execWorkflow();
         } else if (e.getSource() == loadWorkflow) {
             loadWorkflow(false);
@@ -891,7 +1036,11 @@ public class MainFrame extends JFrame implements ActionListener {
         } 
         else if (e.getSource() == cpTransform) {
             compile();
-        } //sauvegarde la requête dans un fichier texte (.txt)
+        } 
+        else if (e.getSource() == shex) {
+            shex(false);
+        } 
+        //sauvegarde la requête dans un fichier texte (.txt)
         else if (e.getSource() == saveQuery) {
           saveQuery();
         } else if (e.getSource() == loadStyle) {
@@ -1010,10 +1159,13 @@ public class MainFrame extends JFrame implements ActionListener {
                 lPath = f.getAbsolutePath();
                 if (lPath != null) {
                     try {
+                        lCurrentPath = f.getParent(); 
                         myCorese.load(lPath);
                         appendMsg("Loading file from path : " + f.getAbsolutePath() + "\n");
                         appendMsg(myCapturer.getContent() + "\ndone.\n\n");
-                        ongletListener.getModel().addElement(lPath);
+                        // do not record because we do not want that this rule based be reloaded
+                        // when we perform Engine/Reload
+                        //ongletListener.getModel().addElement(lPath);
                         boolean b = myCorese.runRuleEngine();
                         if (b) {
                             appendMsg("\n rules applied... \n" + myCapturer.getContent() + "\ndone.\n");
@@ -1080,19 +1232,22 @@ public class MainFrame extends JFrame implements ActionListener {
             // Récupérer le nom du fichier qu’il a spécifié
             String myFile = filechoose.getSelectedFile().toString();
             try {
-                // Créer un objet java.io.FileWriter avec comme argument le mon du fichier dans lequel enregsitrer
-                FileWriter lu = new FileWriter(myFile);
-                // Mettre le flux en tampon (en cache)
-                BufferedWriter out = new BufferedWriter(lu);
-                // Mettre dans le flux le contenu de la zone de texte
-                out.write(str);
-                // Fermer le flux
-                out.close();
-
-            } catch (IOException er) {
-                er.printStackTrace();
+                write(str, myFile);
+            } catch (IOException ex) {
+                java.util.logging.Logger.getLogger(MainFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
             }
         }
+    }
+    
+    void write(String str, String path) throws IOException {
+        // Créer un objet java.io.FileWriter avec comme argument le mon du fichier dans lequel enregsitrer
+        FileWriter lu = new FileWriter(path);
+        // Mettre le flux en tampon (en cache)
+        BufferedWriter out = new BufferedWriter(lu);
+        // Mettre dans le flux le contenu de la zone de texte
+        out.write(str);
+        // Fermer le flux
+        out.close();
     }
 
     void runRules(boolean opt) {
@@ -1293,6 +1448,15 @@ public class MainFrame extends JFrame implements ActionListener {
             }
         }
     }
+    
+    void basicLoad(String path) {
+        DefaultListModel model = getOngletListener().getModel();
+        if (!model.contains(path)) {
+            model.addElement(path);
+        }
+        appendMsg("Loading " + path + "\n");
+        load(path);
+    }
 
     void execWF(String path) {
         execWF(path, true);
@@ -1339,7 +1503,7 @@ public class MainFrame extends JFrame implements ActionListener {
         if (wp.getProcessList() != null) {
             for (WorkflowProcess wf : wp.getProcessList()) {
                 if (wf.isQuery()) {
-                    defQuery(wf.getQueryProcess().getQuery(), run);
+                    defQuery(wf.getQueryProcess().getQuery(), wf.getPath(), run);
                 } else {
                     defQuery(wf, run);
                 }
@@ -1347,6 +1511,26 @@ public class MainFrame extends JFrame implements ActionListener {
         }
     }
 
+    String selectPath() {
+        lPath = null;
+        JFileChooser fileChooser = new JFileChooser(lCurrentPath);
+        fileChooser.setMultiSelectionEnabled(true);
+        fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        int returnValue = fileChooser.showOpenDialog(null);
+        
+        if (returnValue == JFileChooser.APPROVE_OPTION) {
+            File l_Files[] = fileChooser.getSelectedFiles();
+
+            DefaultListModel model = getOngletListener().getModel();
+            for (File f : l_Files) {
+                lPath = f.getAbsolutePath();
+                lCurrentPath = f.getParent();
+                return lPath;
+            }
+        }
+        return null;
+    }
+    
     /**
      * Compile a transformation
      *
@@ -1372,7 +1556,29 @@ public class MainFrame extends JFrame implements ActionListener {
             }
         }
     }
-
+    
+    void shex(boolean load) {
+        String path = selectPath();
+        if (path != null) {
+            Shex shex = new Shex().setExtendShacl(shexExtend)
+                    .setClosed(shexClosed)
+                    .setExpCardinality(shexCard);
+            String name = path.replace(".shex", "shex.ttl");
+            try {
+                shex.parse(path);
+                System.out.println(shex.getStringBuilder());
+                System.out.println("Result in: " + name);
+                write(shex.getStringBuilder().toString(), name);
+                appendMsg(String.format("Translate %s into %s\n", path, name));
+                if (load) {
+                    loadRDF(name);
+                }
+            } catch (Exception ex) {
+                java.util.logging.Logger.getLogger(MainFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+            }
+        }
+    }
+    
     void compile(String path) {
         TemplatePrinter p = TemplatePrinter.create(path);
         try {
@@ -1403,8 +1609,11 @@ public class MainFrame extends JFrame implements ActionListener {
     public void load(String fichier) {
         controler(LOAD);
         try {
+            Date d1 = new Date();
             myCorese.load(fichier);
+            Date d2 = new Date();
             appendMsg(myCapturer.getContent());
+            System.out.println("Load time: " +(d2.getTime() - d1.getTime())/1000.0);
         } catch (EngineException |LoadException e) {
             appendMsg(e.toString());
             e.printStackTrace();
@@ -1459,9 +1668,9 @@ public class MainFrame extends JFrame implements ActionListener {
         newQuery(textQuery, getFileName());
     }
     
-    void defQuery(String text, boolean run){
+    void defQuery(String text, String name, boolean run){
         textQuery = text;
-        MyJPanelQuery panel = newQuery(textQuery);
+        MyJPanelQuery panel = newQuery(textQuery, name);
         if (run){
             panel.exec(this, text);
         }
@@ -1551,11 +1760,21 @@ public class MainFrame extends JFrame implements ActionListener {
     }
     
     void process(Command cmd) {
-        Access.setMode(Access.Mode.GUI);
         String path = cmd.get(Command.WORKFLOW);
         if (path != null) {
             execWF(path, false);
         }
+        try {
+            init();
+        } catch (EngineException ex) {
+            java.util.logging.Logger.getLogger(MainFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        }
+    }
+    
+    void init() throws EngineException {
+        QueryProcess exec = QueryProcess.create(Graph.create());
+        System.out.println("Import: SHACL");
+        exec.imports(QueryProcess.SHACL);
     }
 
     void setRDFSEntailment(boolean b) {
@@ -1694,6 +1913,31 @@ public class MainFrame extends JFrame implements ActionListener {
         coreseFrame.setStyleSheet();
         coreseFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         MyJPanelListener.listLoadedFiles.setCellRenderer(new MyCellRenderer());
+        singleton = coreseFrame;
+    }
+    
+    public void show(String text) {
+        getPanel().display(text);
+    }
+    
+    public static void display(String text) {
+        if (singleton != null) {
+            singleton.appendMsg(text);
+            singleton.appendMsg("\n");
+        }
+    }
 
+    /**
+     * @return the shexSemantics
+     */
+    public boolean isShexSemantics() {
+        return shexSemantics;
+    }
+
+    /**
+     * @param shexSemantics the shexSemantics to set
+     */
+    public void setShexSemantics(boolean shexSemantics) {
+        this.shexSemantics = shexSemantics;
     }
 }

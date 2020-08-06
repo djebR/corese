@@ -10,6 +10,8 @@ import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Filter;
 import fr.inria.corese.kgram.api.core.Node;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.MAPPING;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.core.TripleStore;
@@ -38,6 +40,20 @@ import java.util.Set;
 public class Mapping
         extends EnvironmentImpl
         implements Result, Environment, Pointerable {
+
+    /**
+     * @return the targetGraphNode
+     */
+    public Node getNamedGraph() {
+        return targetGraphNode;
+    }
+
+    /**
+     * @param targetGraphNode the targetGraphNode to set
+     */
+    public void setNamedGraph(Node targetGraphNode) {
+        this.targetGraphNode = targetGraphNode;
+    }
     public static boolean DEBUG_DEFAULT = false; 
     static final Edge[] emptyEdge = new Edge[0];
     static final Edge[] emptyEntity = new Edge[0];
@@ -60,10 +76,11 @@ public class Mapping
     //boolean read = false;
     private Binder bind;
     private Node graphNode;
+    private Node targetGraphNode;
     private Eval eval;
     boolean debug = DEBUG_DEFAULT;
 
-    Mapping() {
+    public Mapping() {
         this.qEdges = emptyEdge;;
         this.edges = emptyEntity;
         init(emptyNode, emptyNode);
@@ -460,7 +477,11 @@ public class Mapping
             sb.append(qNodes[i]); //.append("[").append(qNodes[i].getIndex()).append("]");
             sb.append(" = ").append(e).append(sep);
             if (e != null && e.getObject() != null && e.getObject() != this) {
-                sb.append(sep).append(e.getObject()).append(sep);
+                if ((e.getObject() instanceof TripleStore)) { 
+                }
+                else {
+                    sb.append(sep).append(e.getObject()).append(sep);
+                }
             } 
             i++;
         }
@@ -1314,8 +1335,8 @@ public class Mapping
     }
 
     @Override
-    public int pointerType() {
-        return MAPPING_POINTER;
+    public PointerType pointerType() {
+        return MAPPING;
     }
 
     @Override

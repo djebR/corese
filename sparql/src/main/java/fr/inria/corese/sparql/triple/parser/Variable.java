@@ -30,9 +30,40 @@ import fr.inria.corese.kgram.api.query.Producer;
  */
 public class Variable extends Atom {
 
+    /**
+     * @return the matchCardinality
+     */
+    public boolean isMatchCardinality() {
+        return matchCardinality;
+    }
+
+    /**
+     * @param matchCardinality the matchCardinality to set
+     */
+    public void setMatchCardinality(boolean matchCardinality) {
+        this.matchCardinality = matchCardinality;
+    }
+
+    /**
+     * @return the matchNodeList
+     */
+    public boolean isMatchNodeList() {
+        return matchNodeList;
+    }
+
+    /**
+     * @param matchNodeList the matchNodeList to set
+     */
+    public void setMatchNodeList(boolean matchNodeList) {
+        this.matchNodeList = matchNodeList;
+    }
+
     private boolean isBlankNode = false;
+    private boolean matchNodeList = false;
+    private boolean matchCardinality = false;
     private boolean isPath = false; // use case ?x $path ?y
     private boolean isVisited = false;
+    private boolean dynamic = false;
     private int index = ExprType.UNBOUND;
     private int type = ExprType.GLOBAL;
 
@@ -81,8 +112,8 @@ public class Variable extends Atom {
     }
 
     @Override
-    public void toJava(JavaCompiler jc) {
-        jc.toJava(this);
+    public void toJava(JavaCompiler jc, boolean arg) {
+        jc.toJava(this, arg);
     }
 
     @Override
@@ -95,8 +126,22 @@ public class Variable extends Atom {
         }
         return false;
     }
-
+    
     @Override
+    public void getVariables(List<String> list, boolean excludeLocal) {
+        if (!list.contains(getName())
+                && !(excludeLocal && isLocal())) {
+            list.add(getName());
+        }
+    }
+    
+    @Override
+    void getVariables(VariableScope scope, List<Variable> list) {
+        if (!(scope.isExcludeLocal() && isLocal())) {
+            getVariables(list);
+        }
+    }
+    
     void getVariables(List<Variable> list) {
         if (!list.contains(this)) {
             list.add(this);
@@ -204,15 +249,6 @@ public class Variable extends Atom {
     @Override
     public int type() {
         return ExprType.VARIABLE;
-    }
-
-    @Override
-    public void getVariables(List<String> list, boolean excludeLocal) {
-        // TODO Auto-generated method stub
-        if (!list.contains(getName())
-                && !(excludeLocal && isLocal())) {
-            list.add(getName());
-        }
     }
 
     @Override
@@ -339,6 +375,20 @@ public class Variable extends Atom {
             return null;
         }
         return (IDatatype) node.getDatatypeValue();
+    }
+
+    /**
+     * @return the dynamic
+     */
+    public boolean isDynamic() {
+        return dynamic;
+    }
+
+    /**
+     * @param dynamic the dynamic to set
+     */
+    public void setDynamic(boolean dynamic) {
+        this.dynamic = dynamic;
     }
 
 }

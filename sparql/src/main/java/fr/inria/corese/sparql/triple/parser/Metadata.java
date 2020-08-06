@@ -1,5 +1,6 @@
 package fr.inria.corese.sparql.triple.parser;
 
+import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import java.util.ArrayList;
@@ -58,9 +59,16 @@ public class Metadata extends ASTObject
     public static final int REJECT    = 40;
     public static final int OPTION    = 41;
     public static final int SPLIT     = 42;
+    public static final int LOCK      = 43;
+    public static final int UNLOCK    = 44;
+    public static final int LIMIT     = 45;
+    public static final int GRAPH     = 46;
+    public static final int FROM      = 47;
+    public static final int UPDATE    = 48;
+
     
     
-    public static final int EVENT   = 50;
+    public static final int EVENT   = 51;
 //    public static final int BEFORE  = 51;
 //    public static final int AFTER   = 52;
 //    public static final int PRODUCE = 53;
@@ -88,7 +96,9 @@ public class Metadata extends ASTObject
     public static final String PROBE            = PREF + "probe";
     public static final String VERBOSE          = PREF + "verbose";
     public static final String SELECT           = PREF + "select";
+    public static final String SELECT_FILTER    = PREF + "selectfilter";
     public static final String GROUP            = PREF + "group";
+    public static final String MERGE            = PREF + "merge";
     public static final String SIMPLIFY         = PREF + "simplify";
     public static final String EXIST            = PREF + "exist";
     public static final String SKIP_STR         = PREF + "skip";
@@ -96,6 +106,10 @@ public class Metadata extends ASTObject
     public static final String DISTRIBUTE_NAMED     = PREF + "distributeNamed";
     public static final String DISTRIBUTE_DEFAULT   = PREF + "distributeDefault";
     public static final String REWRITE_NAMED        = PREF + "rewriteNamed";
+    
+    public static final String METHOD = "@method";
+    public static final String ACCESS = "@access";
+    public static final String LEVEL  = "@level";
              
     private static HashMap<String, Integer> annotation;    
     private static HashMap<Integer, String> back; 
@@ -103,6 +117,8 @@ public class Metadata extends ASTObject
     HashMap<String, String> map;
     HashMap<String, List<String>> value;
     HashMap<String, IDatatype> literal; 
+    // inherited metadata such as @public { function ... }
+    private Metadata metadata;
     
      static {
         initAnnotate();
@@ -128,6 +144,7 @@ public class Metadata extends ASTObject
         define("@relax",    RELAX);      
         define("@federate", FEDERATE);      
         define("@federation",FEDERATION);      
+        define("@limit",    LIMIT);      
         define("@move",     MOVE);      
         define("@bounce",   BOUNCE);      
         define("@sparqlzero", SPARQL10);      
@@ -153,8 +170,12 @@ public class Metadata extends ASTObject
         define("@reject",   REJECT); 
         define("@option",   OPTION); 
         define("@split",    SPLIT); 
-        
-        
+        define("@lock",     LOCK); 
+        define("@unlock",   UNLOCK); 
+        define("@graph",    GRAPH); 
+        define("@from",     FROM); 
+                      
+        define("@update",    UPDATE);  
         define("@event",    EVENT);  
 //        define(META_BEFORE, BEFORE);  
 //        define(META_AFTER,  AFTER);  
@@ -238,6 +259,20 @@ public class Metadata extends ASTObject
         }
         else if (val.isLiteral()) {
             literal.put(name, val.getDatatypeValue());
+        }
+    }
+    
+    public void add(int type, IDatatype val){
+        add(name(type), val);
+    }
+
+    
+    public void add(String name, IDatatype val){
+        if (val.isURI()) {
+            add(name, val.getLabel());
+        }
+        else if (val.isLiteral()) {
+            literal.put(name, val);
         }
     }
     
@@ -364,8 +399,8 @@ public class Metadata extends ASTObject
     
     
      @Override
-    public int pointerType() {
-        return METADATA_POINTER;
+    public PointerType pointerType() {
+        return PointerType.METADATA;
     } 
  
    
@@ -383,6 +418,47 @@ public class Metadata extends ASTObject
     @Override
     public String getDatatypeLabel() {
        return String.format("[Metadata: size=%s]", size());
+    }
+
+    /**
+     * @return the metadata
+     */
+    public Metadata getMetadata() {
+        return metadata;
+    }
+
+    /**
+     * @param metadata the metadata to set
+     */
+    public void setMetadata(Metadata metadata) {
+        this.metadata = metadata;
+    }
+    
+    // ________________________________________________
+    
+    // @graph <server1> <g1> <g2> <server2> <g3>
+    public List<String> getGraphList(String service) {
+        List<String> graphList  = getValues(FROM);
+        List<String> serverList = getValues(FEDERATE);
+        ArrayList<String> res = new ArrayList<>();
+        boolean find = false;
+        if (graphList != null && serverList != null) {
+            for (String str : graphList) {
+                if (find) {
+                    if (serverList.contains(str)) {
+                        break;
+                    }
+                    else {
+                        res.add(str);
+                    }
+                }
+                else if (str.equals(service)) {
+                    find = true;
+                }
+            }
+        }
+        
+        return res;
     }
     
   

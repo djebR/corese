@@ -50,6 +50,7 @@ public class CompileService {
      * generate filter (var = m.value(var))
      */
     public boolean compile(Node serv, Query q, Mappings map, Environment env, int start, int limit) {
+        complete(q);
         Query out = q.getOuterQuery();
         if (map == null || (map.size() == 1 && map.get(0).size() == 0)) {
             // lmap may contain one empty Mapping
@@ -68,6 +69,18 @@ public class CompileService {
             return filter(q, map, start, limit);
         } else {
             return bindings(q, map, start, limit);
+        }
+    }
+    
+    void complete(Query q) {
+        Query out = q.getOuterQuery();
+        ASTQuery ast = (ASTQuery) out.getAST();
+        if (ast.hasMetadata(Metadata.LIMIT)) {
+            ASTQuery aa = (ASTQuery) q.getAST();
+            int limit = ast.getMetadata().getDatatypeValue(Metadata.LIMIT).intValue();
+            if (limit < aa.getLimit()) {
+                aa.setLimit(limit);
+            }
         }
     }
 
@@ -129,7 +142,7 @@ public class CompileService {
         ArrayList<Constant> lval = new ArrayList<Constant>();
 
         //for (Node qv : q.getSelect()) {
-        for (Node qv : q.getBody().getRecordInScopeNodes()) {
+        for (Node qv : q.getBody().getRecordInScopeNodesForService()) {
             String name = qv.getLabel();
             Variable var = ast.getSelectAllVar(name);
             if (var == null){
@@ -161,7 +174,7 @@ public class CompileService {
         Values values = Values.create();
 
         //for (Node qv : q.getSelect()) {
-        for (Node qv : q.getBody().getRecordInScopeNodes()) {
+        for (Node qv : q.getBody().getRecordInScopeNodesForService()) {
             String name = qv.getLabel();
             Variable var = ast.getSelectAllVar(name);
             if (var == null){
@@ -178,7 +191,7 @@ public class CompileService {
             boolean ok = false;
             lval = new ArrayList<>();
 
-            for (Node qnode : q.getBody().getRecordInScopeNodes()) {
+            for (Node qnode : q.getBody().getRecordInScopeNodesForService()) {
                 Node val = m.getNode(qnode);
                 
                 if (val != null && ! val.isBlank()) {
@@ -229,7 +242,7 @@ public class CompileService {
         ArrayList<Term> lt = new ArrayList<Term>();
 
         //for (Node qv : q.getSelect()) {
-        for (Node qv : q.getBody().getRecordInScopeNodes()) {
+        for (Node qv : q.getBody().getRecordInScopeNodesForService()) {
             String var = qv.getLabel();
             Node val = env.getNode(var);
 
@@ -279,7 +292,7 @@ public class CompileService {
         ArrayList<Term> lt = new ArrayList<Term>();
         ASTQuery ast = (ASTQuery) q.getAST();
 
-        for (Node varNode : q.getBody().getRecordInScopeNodes()) {
+        for (Node varNode : q.getBody().getRecordInScopeNodesForService()) {
             String varName = varNode.getLabel();
             Node valNode = m.getNodeValue(varName);
             if (valNode != null) { // && ! valNode.isBlank()) {
@@ -362,7 +375,7 @@ public class CompileService {
             body.add(e);
         }
         if (f != null) {
-            body.add(Triple.create(f));
+            body.add(f);
         }
         ast.setBody(body);
     }

@@ -13,12 +13,23 @@ template {
 where {
   ?in rdf:rest* ?r
   ?r  rdf:first ?e
-  filter (?r != rdf:nil && not exists { rdf:nil rdf:rest* ?r })
-  
-  bind (isBlank(?e) && 
-    ((st:get(st:allgraph, true) &&  exists { ?x ?p ?e . filter(?x != ?r) })
-    || exists { ?e ?q ?e })
+  filter (?r != rdf:nil)
+
+  bind (
+  (st:get(st:reference, true)  
+    ||
+    (isBlank(?e) && 
+        (
+        #(st:get(st:allgraph, true) &&  exists { ?x ?p ?e . filter(?x != ?r) })
+        (st:get(st:allgraph, true) &&  xt:mindegree(?e, 1, 2))
+        || let (?qq = bnode()) { xt:exists(?e, ?qq, ?e) }
+        #exists { ?e ?q ?e }
+        ))
+    )
     as ?refer)
+    
+  bind (st:cset(st:bnode, ?r, true) as ?bn)
+
 }
 # after URI and blank
 pragma { st:template st:priority 1000 }

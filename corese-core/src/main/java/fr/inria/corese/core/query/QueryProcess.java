@@ -10,9 +10,7 @@ import fr.inria.corese.sparql.triple.parser.Context;
 import fr.inria.corese.sparql.triple.parser.Dataset;
 import fr.inria.corese.sparql.triple.parser.Metadata;
 import fr.inria.corese.sparql.triple.parser.NSManager;
-import fr.inria.corese.sparql.triple.parser.Optional;
 import fr.inria.corese.compiler.eval.QuerySolver;
-import fr.inria.corese.compiler.parser.Pragma;
 import fr.inria.corese.compiler.parser.Transformer;
 import fr.inria.corese.kgram.api.query.Evaluator;
 import fr.inria.corese.kgram.api.query.Matcher;
@@ -24,30 +22,31 @@ import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.compiler.eval.Interpreter;
 import fr.inria.corese.compiler.eval.ProxyInterpreter;
+import fr.inria.corese.compiler.eval.QuerySolverVisitor;
 import fr.inria.corese.sparql.triple.function.script.Funcall;
 import fr.inria.corese.sparql.triple.function.script.Function;
 import fr.inria.corese.sparql.triple.function.term.Binding;
-import fr.inria.corese.core.api.GraphListener;
 import fr.inria.corese.core.api.Loader;
 import fr.inria.corese.core.api.Log;
 import fr.inria.corese.core.approximate.ext.ASTRewriter;
 import fr.inria.corese.core.Event;
 import fr.inria.corese.core.EventManager;
 import fr.inria.corese.core.Graph;
-import fr.inria.corese.core.GraphStore;
 import fr.inria.corese.core.logic.Entailment;
-import fr.inria.corese.core.rule.RuleEngine;
 import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.load.QueryLoad;
 import fr.inria.corese.core.load.Service;
+import fr.inria.corese.core.query.update.GraphManager;
+import fr.inria.corese.core.query.update.Manager;
+import fr.inria.corese.core.query.update.ManagerImpl;
 import fr.inria.corese.core.util.Extension;
+import fr.inria.corese.kgram.api.query.ProcessVisitor;
+import fr.inria.corese.kgram.core.ProcessVisitorDefault;
 import fr.inria.corese.sparql.api.QueryVisitor;
 import fr.inria.corese.sparql.triple.parser.Access;
 import fr.inria.corese.sparql.triple.parser.Access.Level;
 import fr.inria.corese.sparql.triple.parser.Access.Feature;
-import fr.inria.corese.sparql.triple.update.ASTUpdate;
-import fr.inria.corese.sparql.triple.update.Basic;
-import fr.inria.corese.sparql.triple.update.Update;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -56,8 +55,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Evaluator of SPARQL query by KGRAM Implement KGRAM as a lightweight version
- * with KGRAPH
+ * Evaluator of SPARQL query by KGRAM 
  *
  * Query and Update are synchronized by a read/write lock on the graph There may
  * be several query in parallel OR only one update In addition, graph.init() is
@@ -71,28 +69,31 @@ public class QueryProcess extends QuerySolver {
     private static Logger logger = LoggerFactory.getLogger(QueryProcess.class);
     private static ProducerImpl p;
     private static final String EVENT = "event";
-    static final String DB_FACTORY  = "fr.inria.corese.tinkerpop.Factory";
-    static final String DB_INPUT    = "fr.inria.corese.tinkerpop.dbinput";
-
+    static final String DB_FACTORY = "fr.inria.corese.tinkerpop.Factory";
+    static final String DB_INPUT = "fr.inria.corese.tinkerpop.dbinput";
+    static final String FUNLIB = "/function/";
+    public static final String SHACL = "http://ns.inria.fr/sparql-template/function/datashape/main.rq";
     //sort query edges taking cardinality into account
     static boolean isSort = false;
-    
-    static  HashMap<String, Producer> dbmap;
+
+    static HashMap<String, Producer> dbmap;
     private Manager updateManager;
     private GraphManager graphManager;
+    private QueryProcessUpdate queryProcessUpdate;
     Transformer transformer;
     Loader load;
+    // fake eval for funcall public function
     Eval eval;
     ReentrantReadWriteLock lock;
     // Producer may perform match locally
     boolean isMatch = false;
 
     static {
-        setJoin(false);
+        //setJoin(false);
         dbmap = new HashMap<>();
         new Extension().process();
     }
-    
+
     private static boolean overWrite = false;
 
     public QueryProcess() {
@@ -101,40 +102,25 @@ public class QueryProcess extends QuerySolver {
     /**
      * Generate JOIN(A, B) if A and B do not share a variable (in triples)
      */
-    public static void setJoin(boolean b) {
-        if (b) {
-            Query.testJoin = true;
-        } else {
-            Query.testJoin = false;
-        }
-    }
+//    public static void setJoin(boolean b) {
+//        if (b) {
+//            Query.testJoin = true;
+//        } else {
+//            Query.testJoin = false;
+//        }
+//    }
 
-    /**
-	 * True means SPARQL semantics (default value) False means Corese
-	 * semantics (deprecated)
-     */
-    public static void setOptional(boolean b) {
-        if (b) {
-            Optional.isOptional = true;
-            Query.isOptional = true;
-        } else {
-            Optional.isOptional = false;
-            Query.isOptional = false;
-        }
-    }
-   
     protected QueryProcess(Producer p, Evaluator e, Matcher m) {
         super(p, e, m);
         Graph g = getGraph(p);
-        if (g != null) {
-            // construct 
-            setGraphManager(new GraphManager(g));
-            // update
-            setManager(new ManagerImpl(getGraphManager()));
-        }
-        // service
-        set(ProviderImpl.create());
+        complete();
         init();
+    }
+
+    void complete() {
+        // service
+        set(ProviderImpl.create(this));
+        setQueryProcessUpdate(new QueryProcessUpdate(this));
     }
 
     void init() {
@@ -154,25 +140,12 @@ public class QueryProcess extends QuerySolver {
 
     @Override
     public void initMode() {
-//        switch (getMode()) {
-//            case PROTECT_SERVER_MODE:
-//                Access.protect();
-//                PluginImpl.readWriteAuthorized = false;
-//        }
-    }
-
-    public void setManager(Manager man) {
-        updateManager = man;
-    }
-
-    Manager getManager() {
-        return updateManager;
     }
 
     public static QueryProcess create() {
         return create(Graph.create());
     }
-    
+
     public static QueryProcess create(Graph g) {
         return create(g, false);
     }
@@ -195,12 +168,15 @@ public class QueryProcess extends QuerySolver {
         return eval;
     }
 
-
     /**
-	 * isMatch = true: Each Producer perform local Matcher.match() on its
-	 * own graph for subsumption Hence each graph can have its own ontology
-	 * and return one occurrence of each resource for ?x rdf:type aClass
-	 * isMatch = false: (default) Global producer perform Matcher.match()
+     * isMatch = true:  ?x a h:Person return one occurrence  for each instance of Person
+     * isMatch = false: ?x a h:Person return all occurrences for each instance of Person 
+     * where the instance has several types which match Person, such as x a h:Man, h:Person
+     * default isMatch = false
+     * In addition, each Producer perform local Matcher.match() on its own
+     * graph for subsumption Hence each graph can have its own ontology and
+     * return one occurrence of each resource for ?x rdf:type aClass isMatch =
+     * false: (default) Global producer perform Matcher.match()
      */
     public static QueryProcess create(Graph g, boolean isMatch) {
         String factory = System.getProperty("fr.inria.corese.factory");
@@ -210,14 +186,17 @@ public class QueryProcess extends QuerySolver {
             return dbCreate(g, isMatch, factory, null);
         }
     }
-    
+
+    /**
+     * When there is a graph database to manage the graph
+     */
     public static QueryProcess dbCreate(Graph g, boolean isMatch, String factory, String db) {
         Producer p = getCreateProducer(g, factory, db);
         QueryProcess exec = QueryProcess.create(p);
         exec.setMatch(isMatch);
         return exec;
     }
-    
+
     public static QueryProcess stdCreate(Graph g, boolean isMatch) {
         ProducerImpl p = ProducerImpl.create(g);
         p.setMatch(isMatch);
@@ -225,7 +204,7 @@ public class QueryProcess extends QuerySolver {
         exec.setMatch(isMatch);
         return exec;
     }
-            
+
     public static synchronized Producer getCreateProducer(Graph g, String factory, String db) {
         if (db == null) {
             if (p == null) {
@@ -242,9 +221,9 @@ public class QueryProcess extends QuerySolver {
             return prod;
         }
     }
-    
+
     static ProducerImpl createProducer(Graph g, String factory, String db) {
-        if (db != null){
+        if (db != null) {
             System.setProperty(DB_INPUT, db);
         }
         try {
@@ -290,7 +269,7 @@ public class QueryProcess extends QuerySolver {
         }
         add(p);
         return p;
-    } 
+    }
 
     public static QueryProcess create(Producer p) {
         Matcher match;
@@ -325,34 +304,40 @@ public class QueryProcess extends QuerySolver {
 
     public static Interpreter createInterpreter(Producer p, Matcher m) {
         PluginImpl plugin = PluginImpl.create(m);
-        ProxyInterpreter  proxy = new ProxyInterpreter();
+        ProxyInterpreter proxy = new ProxyInterpreter();
         proxy.setPlugin(plugin);
-        Interpreter eval  = new Interpreter(proxy);
-	eval.setProducer(p);
+        Interpreter eval = new Interpreter(proxy);
+        eval.setProducer(p);
         return eval;
     }
-    
-    
+
     /**
-     * query = select from g where 
-     * g is an external named graph
-     * return a new QueryProcess with Producer(g)
+     * query = select from g where g is an external named graph return a new
+     * QueryProcess with Producer(g)
      */
     QueryProcess focusFrom(Query q) {
         String name = getFromName(q);
-        if (name != null && isExternal(name)) {
-            Graph g = getGraph().getNamedGraph(name);
-            if (g != null) {
+        if (name != null) {
+            Graph g = getGraph();
+            Graph gg = g.getNamedGraph(name);
+            if (gg != null) {
                 q.getFrom().clear();
-                return create(g);
+                if (isReentrant()) {
+                    synchronized (g) {
+                        gg.shareNamedGraph(g);
+                    }
+                }
+                if (isDebug()) {
+                    System.out.println("QP: update external graph name: " + name);
+                }
+                return create(gg);
             }
         }
         return this;
     }
-    
-    
+
     /**
-	 * *************************************************************
+     * *************************************************************
      *
      * API for query
      *
@@ -364,24 +349,24 @@ public class QueryProcess extends QuerySolver {
 
     @Override
     public Mappings query(String squery) throws EngineException {
-        //System.out.println(squery);
+        //System.out.println("QP: " + squery);
         return doQuery(squery, null, null);
     }
 
     /**
-	 * defaut and named specify a Dataset if the query has no from/using
-	 * (resp. named), kgram use defaut (resp. named) if it exist for update,
-	 * defaut is also used in the delete clause (when there is no with in
-	 * the query) W3C sparql test cases use this function
+     * defaut and named specify a Dataset if the query has no from/using (resp.
+     * named), kgram use defaut (resp. named) if it exist for update, defaut is
+     * also used in the delete clause (when there is no with in the query) W3C
+     * sparql test cases use this function
      */
     @Override
     public Mappings query(String squery, Mapping map, Dataset ds) throws EngineException {
         return doQuery(squery, map, ds);
     }
-    
+
     Mappings doQuery(String squery, Mapping map, Dataset ds) throws EngineException {
         Query q = compile(squery, ds);
-        return query(q, map, ds);
+        return query(null, q, map, ds);
     }
 
     @Override
@@ -397,7 +382,7 @@ public class QueryProcess extends QuerySolver {
     public Query compile(String squery) throws EngineException {
         return compile(squery, null);
     }
-    
+
     public ASTQuery ast(String q) throws EngineException {
         Query qq = compile(q);
         return getAST(qq);
@@ -410,59 +395,72 @@ public class QueryProcess extends QuerySolver {
     public Mappings query(String squery, Context c) throws EngineException {
         return doQuery(squery, null, Dataset.create(c));
     }
-    
+
     @Override
     public Mappings query(String squery, Mapping map) throws EngineException {
         return query(squery, map, null);
     }
-    
+
     public Mappings query(String squery, Binding b) throws EngineException {
         return query(squery, Mapping.create(b), null);
     }
 
     /**
-	 * defaut and named specify a Dataset if the query has no from/using
-	 * (resp. using named), kgram use this defaut (resp. named) if it exist
-	 * for update, this using is *not* used in the delete clause W3C sparql
-	 * protocol use this function
+     * defaut and named specify a Dataset if the query has no from/using (resp.
+     * using named), kgram use this defaut (resp. named) if it exist for update,
+     * this using is *not* used in the delete clause W3C sparql protocol use
+     * this function
      */
     @Override
     public Mappings query(Query q) {
-        return qquery(q, null, null);
+        return qquery(null, q, null, null);
     }
 
     @Override
     public Mappings eval(Query query) {
-        return qquery(query, null, null);
+        return qquery(null, query, null, null);
     }
 
     @Override
     public Mappings eval(Query query, Mapping m) {
-        return qquery(query, m, null);
+        return qquery(null, query, m, null);
     }
-    
+
     /**
-     * Use case: LDScript function execute query(construct where) or query(insert where)
+     * Use case: LDScript function execute query(construct where) or
+     * query(insert where)
      */
     @Override
     public Mappings eval(Query query, Mapping m, Producer p) {
-        Dataset ds = getUpdateDataset(query);
-        if (p == getProducer()) {
-            return protectQuery(query, m, ds);
-        }
-        return create(p).protectQuery(query, m, ds);
+        return eval(null, query, m, p);
     }
-    
-    Mappings protectQuery(Query query, Mapping m, Dataset ds) {
+
+    @Override
+    public Mappings eval(Node gNode, Query query, Mapping m, Producer p) {
+        Dataset ds = getUpdateDataset(query);
+        if (p == null || p == getProducer()) {
+            return protectQuery(gNode, query, m, ds);
+        }
+        return create(p).protectQuery(gNode, query, m, ds);
+    }
+
+    /**
+     * Protect LDScript update query wrt select where use case isSynchronized()
+     * :
+     *
+     * @event function call may perform update before or after select query
+     * example: visitor init()
+     */
+    Mappings protectQuery(Node gNode, Query query, Mapping m, Dataset ds) {
         if (query.isUpdate()) {
-            if (lock.getReadLockCount() > 0 && ! isOverwrite()) {
+            if (lock.getReadLockCount() > 0 && !isReentrant() && !isSynchronized()) {
                 logger.info("Update rejected to avoid deadlock");
                 return Mappings.create(query);
             }
         }
-        return qquery(query, m, ds);
+        return qquery(gNode, query, m, ds);
     }
-    
+
     Dataset getUpdateDataset(Query q) {
         Context c = getContext(q);
         if (c != null && q.isUpdate()) {
@@ -472,128 +470,11 @@ public class QueryProcess extends QuerySolver {
         }
         return null;
     }
-    
-    /**
-     * Logger
-     * xt:method(us:start, us:Event, event, obj)
-     */
-    public void event(Event name, Event e, Object o) throws EngineException {
-        IDatatype[] param = (o == null) ? param(DatatypeMap.createObject(e)) : 
-                param(DatatypeMap.createObject(e), DatatypeMap.createObject(o));
-        EventManager mgr = getGraph().getEventManager();
-        boolean b = mgr.isVerbose();
-        mgr.setVerbose(false);
-        method(NSManager.USER + name.toString().toLowerCase(), NSManager.USER + e.toString(), param);
-        mgr.setVerbose(b);
 
-    }
-    
-    IDatatype[] param(IDatatype... ldt) {
-        return ldt;
-    }
-    
-    public IDatatype method(String name, String type, IDatatype[] param) throws EngineException {
-        //System.out.println("QP: " + name + " " + type + " " + param[0] + " " + param[1]);
-        Function function = getFunction(name, type, param);
-        //System.out.println("QP: " + function);
-        if (function == null) {
-            return null;
-        }
-        return call(EVENT, function, param, null);
-    }
-    
-    /**
-     * Execute LDScript function defined as @public
-     */
-    public IDatatype funcall(String name, IDatatype... param) throws EngineException {
-        return funcall(name, null, param);
-    }
 
-    public IDatatype funcall(String name, Context c, IDatatype... param) throws EngineException {
-        Function function = getLinkedFunction(name, param);
-        if (function == null) {          
-            return null;
-        }
-        return call(name, function, param, c);
-    }
-    
-    IDatatype call(String name, Function function, IDatatype[] param, Context c) throws EngineException {
-        Eval eval = getEval();
-        eval.getMemory().getQuery().setContext(c);
-        return new Funcall(name).call((Interpreter) eval.getEvaluator(),
-                (Binding) eval.getMemory().getBind(),
-                eval.getMemory(), eval.getProducer(), function, param);
-    }
-
-    Eval getEval() throws EngineException {
-        if (eval == null){
-            eval = createEval("select where {}  ", null);
-        }
-        return eval;
-    }
-    
-    Function getLinkedFunction(String name,  IDatatype[] param) {
-        Function function = getFunction(name, param);
-        if (function == null) {
-            //setLinkedFunction(true);
-            getLinkedFunctionBasic(name);
-            function = getFunction(name, param);
-        }
-        return function;
-    }
-    
-
-    /**
-     * Search a method 
-     * @public @type us:Event us:start(?e, ?o)
-     */
-    Function getFunction(String name,  IDatatype[] param) {
-        return (Function) Interpreter.getExtension().get(name, param.length);
-    }
-    
-    Function getFunction(String name, String type, IDatatype[] param) {
-        return (Function) Interpreter.getExtension().getMethod(
-                name, DatatypeMap.newResource(type), 
-                param);
-    }
-    
-    @Override
-    public Query parseQuery(String path) {
-        QueryLoad ql = QueryLoad.create();
+    public Mappings qquery(Node gNode, Query q, Mapping map, Dataset ds) {
         try {
-            String pp =  (path.endsWith("/")) ? path.substring(0, path.length()-1) : path;
-            String str = ql.readWE(pp);
-            Query q = compile(str, new Dataset().setBase(path));
-            return q;
-        } catch (LoadException ex) {
-			logger.error(ex.getMessage());
-        } catch (EngineException ex) {
-			logger.error(ex.getMessage());
-        }
-        return null;
-    }
-    
-    @Override
-    public void getLinkedFunction(String label) {
-        getTransformer().getLinkedFunction(label);
-    }
-    
-    void getLinkedFunctionBasic(String label) {
-        getTransformer().getLinkedFunctionBasic(label);
-    }
-    
-    Transformer getTransformer() {
-        if (transformer == null) {
-            transformer = Transformer.create();
-            transformer.setSPARQLEngine(this);
-            transformer.setLinkedFunction(isLinkedFunction());
-        }
-        return transformer;
-    }
-
-    public Mappings qquery(Query q, Mapping map, Dataset ds) {
-        try {
-            return query(q, map, ds);
+            return query(gNode, q, map, ds);
         } catch (EngineException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
@@ -616,8 +497,8 @@ public class QueryProcess extends QuerySolver {
     }
 
     /**
-	 * q is construct {} where {} eval the construct consider the result as
-	 * a query graph execute the query graph
+     * q is construct {} where {} eval the construct consider the result as a
+     * query graph execute the query graph
      */
     public Mappings queryGraph(String q) throws EngineException {
         Mappings m = query(q);
@@ -626,9 +507,9 @@ public class QueryProcess extends QuerySolver {
     }
 
     /**
-	 * KGRAM + full SPARQL compliance : - type of arguments of functions
-	 * (e.g. sparql regex require string) - variable in select with group by
-	 * - specify the dataset
+     * KGRAM + full SPARQL compliance : - type of arguments of functions (e.g.
+     * sparql regex require string) - variable in select with group by - specify
+     * the dataset
      */
     public Mappings sparql(String squery, Dataset ds) throws EngineException {
         return sparqlQueryUpdate(squery, ds, RDFS_ENTAILMENT);
@@ -645,10 +526,6 @@ public class QueryProcess extends QuerySolver {
         return query(ast, null);
     }
 
-//	public Mappings query(ASTQuery ast, List<String> from, List<String> named) {
-//		Dataset ds = Dataset.create(from, named);
-//		return query(ast, ds);
-//	}
     public Mappings query(ASTQuery ast, Dataset ds) {
         if (ds != null) {
             ast.setDefaultDataset(ds);
@@ -656,7 +533,7 @@ public class QueryProcess extends QuerySolver {
         Transformer transformer = transformer();
         Query query = transformer.transform(ast);
         try {
-            return query(query, null, ds);
+            return query(null, query, null, ds);
         } catch (EngineException e) {
             return Mappings.create(query);
         }
@@ -685,12 +562,12 @@ public class QueryProcess extends QuerySolver {
         }
         return query(q);
     }
-      
+
     public Mappings sparqlQuery(String squery, Mapping map, Dataset ds) throws EngineException {
-        Query q = compile(squery, ds);       
+        Query q = compile(squery, ds);
         return sparqlQuery(q, map);
     }
-    
+
     public Mappings sparqlQuery(Query q, Mapping map) throws EngineException {
         if (q.isUpdate()) {
             throw new EngineException("Unauthorized Update in SPARQL Query:\n" + q.getAST().toString());
@@ -716,7 +593,7 @@ public class QueryProcess extends QuerySolver {
      *
      ***************************************************************************
      */
-    Mappings query(Query q, Mapping m, Dataset ds) throws EngineException {
+    Mappings query(Node gNode, Query q, Mapping m, Dataset ds) throws EngineException {
         ASTQuery ast = getAST(q);
         if (ast.isLDScript()) {
             if (Access.reject(Feature.LD_SCRIPT)) {
@@ -733,21 +610,23 @@ public class QueryProcess extends QuerySolver {
             //@federate <http://dbpedia.org/sparql>
             //select where {}
             return service(q, m);
-        }
-        else {
+        } else {
             dbProducer(q);
         }
         Mappings map;
 
         if (q.isUpdate() || q.isRule()) {
             log(Log.UPDATE, q);
-            map = synUpdate(q, m, ds);
+            if (Access.reject(Access.Feature.SPARQL_UPDATE, getLevel(q))) { 
+                return Mappings.create(q);
+            }
+            map = getQueryProcessUpdate().synUpdate(q, m, ds);
             // map is the result of the last Update in q
             // hence the query in map is a local query corresponding to the last Update in q
             // return the Mappings of the last Update and the global query q
             map.setQuery(q);
         } else {
-            map = synQuery(q, m);
+            map = synQuery(gNode, q, m);
 
             if (q.isConstruct()) {
                 // construct where
@@ -759,27 +638,26 @@ public class QueryProcess extends QuerySolver {
         finish(q, map);
         return map;
     }
-    
+
     Mapping createMapping(Mapping m, Dataset ds) {
         if (m == null) {
             if (ds != null && ds.getBinding() != null) {
                 m = Mapping.create(ds.getBinding());
             }
-        } 
-        else if (m.getBind() == null && ds != null) {
+        } else if (m.getBind() == null && ds != null) {
             m.setBind(ds.getBinding());
         }
         return m;
     }
-    
+
     void dbProducer(Query q) {
         ASTQuery ast = getAST(q);
         if (ast.hasMetadata(Metadata.DB)) {
             String factory = DB_FACTORY;
-            if (ast.hasMetadata(Metadata.DB_FACTORY)){
+            if (ast.hasMetadata(Metadata.DB_FACTORY)) {
                 factory = ast.getMetadataValue(Metadata.DB_FACTORY);
             }
-            Producer prod = getCreateProducer(getGraph(), factory, ast.getMetadataValue(Metadata.DB));            
+            Producer prod = getCreateProducer(getGraph(), factory, ast.getMetadataValue(Metadata.DB));
             setProducer(prod);
         }
     }
@@ -792,18 +670,22 @@ public class QueryProcess extends QuerySolver {
         }
     }
 
-    Mappings synQuery(Query query, Mapping m) {
+    Mappings synQuery(Node gNode, Query query, Mapping m) {
         Mappings map = null;
         try {
-            readLock();
+            syncReadLock(query);
             logStart(query);
             // select from g where
             // if g is an external named graph, create specific Producer(g)
-            return focusFrom(query).query(query, m);
+            return basicQuery(gNode, query, m);
         } finally {
             logFinish(query, map);
-            readUnlock();
+            syncReadUnlock(query);
         }
+    }
+
+    public Mappings basicQuery(Node gNode, Query q, Mapping m) {
+        return focusFrom(q).query(gNode, q, m);
     }
 
     void log(int type, Query q) {
@@ -820,86 +702,6 @@ public class QueryProcess extends QuerySolver {
         }
     }
 
-    /**
-     * return true if this query is a query submitted by a user on a protected corese server
-     * In this case, Update query is rejected
-     * PROTECT_SERVER_MODE means this QueryProcess is a protected SPARQL endpoint
-     * isUserQuery() = true means this query is submitted by a user on a protected server
-     * and this QueryProcess is a Workflow processor; In this case, function definition is also rejected.
-     */
-//    boolean isProtected(Query q) {
-//        return (getMode() == PROTECT_SERVER_MODE || getAST(q).isUserQuery()); 
-//    }
-          
-    boolean isOverwrite() {
-        return overWrite;
-    }
-    
-    public static void setOverwrite(boolean b) {
-        overWrite = b;
-    }
-    
-    /**
-     * Create a new graph where to perform update
-     * Store it as named graph of main dataset
-     */
-    Mappings overWrite(Query query, Mapping m, Dataset ds) throws EngineException {
-        String name = getWithName(query);
-        //System.out.println("Process named graph: " + name);
-                
-        Graph g  = getGraph();
-        Graph gg = g.getNamedGraph(name);
-        if (gg == null) {
-            gg = GraphStore.create();
-            gg.setNamedGraph(Context.STL_DATASET, g);
-            if (g.isVerbose()) {
-                gg.setVerbose(true);
-            }
-        }
-        
-        QueryProcess exec = QueryProcess.create(gg);
-        Mappings map = exec.update(query, m, ds); 
-        if (gg.isVerbose()) {
-            System.out.println("name: " + name);
-            System.out.println(gg);
-        }
-        //gg.init();
-        g.setNamedGraph(name, gg);
-        complete(exec.getAST(query).getUpdate(), g);
-        return map;
-    }
-    
-    void complete(ASTUpdate up, Graph g) {
-        String name = up.getGraphName();
-        for (Update act : up.getUpdates()) {
-            switch (act.type()) {
-                case Basic.DROP:
-                    if (act.getBasic().getGraph() != null && act.getBasic().getGraph().equals(name)) {
-                        g.setNamedGraph(name, null);
-                        return;
-                    }
-            }
-        }
-    }
-    
-    String getWithName(Query query) {
-        String name = getAST(query).getUpdate().getGraphName();
-        return name;
-    }
-    
-    String getFromName(Query query) {
-        List<Node> from = query.getFrom();
-        if (from != null && from.size() == 1) {
-           return from.get(0).getLabel();
-        }
-        return null;
-    }
-    
-    // place holder to have specific external URI
-    boolean isExternal(String name) {
-        return true;
-    }
-    
     Context getContext(Query q) {
         Context c = (Context) q.getContext();
         if (c == null) {
@@ -907,7 +709,7 @@ public class QueryProcess extends QuerySolver {
         }
         return c;
     }
-    
+
     Level getLevel(Query q) {
         Context c = getContext(q);
         if (c == null) {
@@ -915,57 +717,29 @@ public class QueryProcess extends QuerySolver {
         }
         return c.getLevel();
     }
-    
-    Mappings synUpdate(Query query, Mapping m, Dataset ds) throws EngineException {
-        if (Access.reject(Feature.SPARQL_UPDATE, getLevel(query))) { //getAST(query).getLevel())) { //(isProtected(query)) {
-            return new Mappings();
+
+    static boolean isOverwrite() {
+        return isReentrant();
+    }
+
+    public static void setOverwrite(boolean b) {
+        setReentrant(b);
+    }
+
+    public static void setReentrant(boolean b) {
+        overWrite = b;
+    }
+
+    public static boolean isReentrant() {
+        return overWrite;
+    }
+
+    String getFromName(Query query) {
+        List<Node> from = query.getFrom();
+        if (from != null && from.size() == 1) {
+            return from.get(0).getLabel();
         }
-        Graph g = getGraph();
-        GraphListener gl = (GraphListener) query.getPragma(Pragma.LISTEN);
-        if (isOverwrite()) {           
-            String name = getWithName(query);
-            if (name != null && isExternal(name)) {     
-                // draft: get/create a graph and store it as named graph
-                // with name insert where
-                // insert data { graph name }
-                // drop graph name
-                // old: (lock.getReadLockCount() > 0 || g.getNamedGraph(name) != null) {
-                return overWrite(query, m, ds);
-            }
-        }
-                             
-        try {
-            if (isSynchronized()) { 
-                // if query comes from workflow or from RuleEngine cleaner, 
-                // it is synchronized by graph.init()
-                // and it already has a lock by synQuery/synUpdate 
-                // hence do nothing
-            }
-            else {
-                writeLock();
-            }
-            if (gl != null) {
-                g.addListener(gl);
-            }
-            //g.logStart(query);
-            if (query.isRule()) {
-                return rule(query);
-            } else {
-                return update(query, m, ds);
-            }
-        } 
-        finally {
-            //g.logFinish(query);
-            if (gl != null) {
-                g.removeListener(gl);
-            }
-            if (isSynchronized()) { 
-                // do nothing
-            }
-            else {
-                writeUnlock();
-            }
-        }
+        return null;
     }
 
     /**
@@ -983,55 +757,14 @@ public class QueryProcess extends QuerySolver {
         }
     }
 
-    /**
-     * Compute a construct where query considered as a (unique) rule Syntax:
-     * rule construct {} where {}
-     */
-    Mappings rule(Query q) {
-        RuleEngine re = RuleEngine.create(getGraph());
-        re.setDebug(isDebug());
-        re.defRule(q);
-        getGraph().process(re);
-        return Mappings.create(q);
-    }
-    
-    EventManager getEventManager() {
+    public EventManager getEventManager() {
         return getGraph().getEventManager();
     }
 
-    /**
-	 * from and named (if any) specify the Dataset over which update take
-	 * place where {} clause is computed on this Dataset delete {} clause is
-	 * computed on this Dataset insert {} take place in Entailment.DEFAULT,
-	 * unless there is a graph pattern or a with
-     *
-	 * This explicit Dataset is introduced because Corese manages the
-	 * default graph as the union of named graphs whereas in some case (W3C
-	 * test case, protocol) there is a specific default graph hence,
-	 * ds.getFrom() represents the explicit default graph
-     *
-     */
-    Mappings update(Query query, Mapping m, Dataset ds) throws EngineException {
-        getEventManager().start(Event.Update, query.getAST());
-        if (ds != null && ds.isUpdate()) {
-            // TODO: check complete() -- W3C test case require += default + entailment + rule
-            complete(ds);
-        }
-        UpdateProcess up = UpdateProcess.create(this, ds);
-        up.setDebug(isDebug());
-        Mappings map = up.update(query, m);
-        getEventManager().finish(Event.Update, query.getAST());
-        return map;
-    }
-
-    void complete(Dataset ds) {
-        if (ds != null && ds.hasFrom()) {
-            ds.clean();
-            // add the default graphs where insert or entailment may have been done previously
-            for (String src : Entailment.GRAPHS) {
-                ds.addFrom(src);
-            }
-        }
+    ManagerImpl createUpdateManager(Graph g) {
+        GraphManager man = new GraphManager(g);
+        man.setQueryProcess(this);
+        return new ManagerImpl(man);
     }
 
     /**
@@ -1063,6 +796,16 @@ public class QueryProcess extends QuerySolver {
         return map;
     }
 
+    void complete(Dataset ds) {
+        if (ds != null && ds.hasFrom()) {
+            ds.clean();
+            // add the default graphs where insert or entailment may have been done previously
+            for (String src : Entailment.GRAPHS) {
+                ds.addFrom(src);
+            }
+        }
+    }
+
     public Graph getGraph(Mappings map) {
         return (Graph) map.getGraph();
     }
@@ -1079,11 +822,11 @@ public class QueryProcess extends QuerySolver {
     }
 
     /**
-     * construct {} where {}      *
+     * construct {} where {} *
      */
     void construct(Mappings map, Dataset ds) {
         Query query = map.getQuery();
-        Graph gg = Graph.create();
+        Graph gg = getGraph().construct();
         // can be required to skolemize
         gg.setSkolem(isSkolem());
         Construct cons = Construct.create(query, new GraphManager(gg));
@@ -1093,8 +836,7 @@ public class QueryProcess extends QuerySolver {
     }
 
     /**
-	 * Pragma specific to kgraph (in addition to generic pragma in
-	 * QuerySolver)
+     * Pragma specific to kgraph (in addition to generic pragma in QuerySolver)
      */
     void pragma(Query query) {
         ASTQuery ast = (ASTQuery) query.getAST();
@@ -1119,20 +861,68 @@ public class QueryProcess extends QuerySolver {
         return lock.writeLock();
     }
 
-    private void readLock() {
-        getReadLock().lock();
+    private void syncReadLock(Query q) {
+        if (isSynchronized()) {
+        } else {
+            readLock(q);
+        }
     }
 
-    private void readUnlock() {
-        getReadLock().unlock();
+    private void syncReadUnlock(Query q) {
+        if (isSynchronized()) {
+        } else {
+            readUnlock(q);
+        }
     }
 
-    private void writeLock() {
-        getWriteLock().lock();
+    // if query comes from workflow or from RuleEngine cleaner, 
+    // it is synchronized by graph.init()
+    // and it already has a lock by synQuery/synUpdate 
+    // hence do nothing
+    void syncWriteLock(Query q) {
+        if (isSynchronized()) {
+        } else {
+            writeLock(q);
+        }
     }
 
-    private void writeUnlock() {
-        getWriteLock().unlock();
+    void syncWriteUnlock(Query q) {
+        if (isSynchronized()) {
+        } else {
+            writeUnlock(q);
+        }
+    }
+
+    private void readLock(Query q) {
+        if (q.isLock()) {
+            getReadLock().lock();
+        }
+    }
+
+    private void readUnlock(Query q) {
+        if (q.isLock()) {
+            getReadLock().unlock();
+        }
+    }
+
+    private void writeLock(Query q) {
+        if (q.isLock()) {
+            getWriteLock().lock();
+        }
+    }
+
+    private void writeUnlock(Query q) {
+        if (q.isLock()) {
+            getWriteLock().unlock();
+        }
+    }
+
+    public void beforeLoad(IDatatype dt, boolean b) {
+        getQueryProcessUpdate().beforeLoad(dt, b);
+    }
+
+    public void afterLoad(IDatatype dt, boolean b) {
+        getQueryProcessUpdate().afterLoad(dt, b);
     }
 
     /**
@@ -1160,39 +950,249 @@ public class QueryProcess extends QuerySolver {
         return map;
     }
 
-    void logStart(Query query) {
+    public void logStart(Query query) {
         if (getGraph() != null) {
             getGraph().logStart(query);
         }
     }
 
-    void logFinish(Query query, Mappings m) {
+    public void logFinish(Query query, Mappings m) {
         if (getGraph() != null) {
             getGraph().logFinish(query, m);
         }
     }
 
     /**
-     * @return the graphManager
-     */
-    public GraphManager getGraphManager() {
-        return graphManager;
-    }
-
-    /**
-     * @param graphManager the graphManager to set
-     */
-    public void setGraphManager(GraphManager graphManager) {
-        this.graphManager = graphManager;
-    }
-
-    /**
      * ****************************************
      */
-	public void close() {
-		if (p != null) {
-			p.close();
-			p = null;
-		}
-	}
+    public void close() {
+        if (p != null) {
+            p.close();
+            p = null;
+        }
+    }
+    
+    
+    /***************************************************************************
+     * 
+     * Function call and event function
+     * 
+     *************************************************************************/
+
+    
+    /**
+     * Logger xt:method(us:start, us:Event, event, obj)
+     * Use case: event logger
+     * @deprecated
+     */
+    public void event(Event name, Event e, Object o) throws EngineException {
+        IDatatype[] param = (o == null) ? param(DatatypeMap.createObject(e))
+                : param(DatatypeMap.createObject(e), DatatypeMap.createObject(o));
+        EventManager mgr = getGraph().getEventManager();
+        boolean b = mgr.isVerbose();
+        mgr.setVerbose(false);
+        method(NSManager.USER + name.toString().toLowerCase(), NSManager.USER + e.toString(), param);
+        mgr.setVerbose(b);
+    }
+
+    // import function definition as public function
+    public void imports(String path) throws EngineException {
+        String q = "@public @import <%s> select where {}";
+        compile(String.format(q, path));
+    }
+
+    IDatatype[] param(IDatatype... ldt) {
+        return ldt;
+    }
+
+    /**
+     * method call: name of method, name of type
+     */
+    public IDatatype method(String name, String type, IDatatype[] param) throws EngineException {
+        Function function = getFunction(name, type, param);
+        if (function == null) {
+            return null;
+        }
+        return call(EVENT, function, param, null);
+    }
+
+    /**
+     * Execute LDScript function defined as @public
+     */
+    public IDatatype funcall(String name, IDatatype... param) throws EngineException {
+        return funcall(name, (Context) null, param);
+    }
+
+    public IDatatype funcall(String name, Binding b, IDatatype... param) throws EngineException {
+        return funcall(name, new Context().setBind(b), param);
+    }
+
+    public IDatatype funcall(String name, Context c, IDatatype... param) throws EngineException {
+        Function function = getLinkedFunction(name, param);
+        if (function == null) {
+            return null;
+        }
+        return call(name, function, param, c);
+    }
+
+    IDatatype call(String name, Function function, IDatatype[] param, Context c) throws EngineException {
+        Eval eval = getEval();
+        eval.getMemory().getQuery().setContext(c);
+        if (c != null && c.getBind() != null) {
+            getBind(eval).share(c.getBind());
+        }
+        return new Funcall(name).call((Interpreter) eval.getEvaluator(),
+                getBind(eval),
+                eval.getMemory(), eval.getProducer(), function, param);
+    }
+
+    Binding getBind(Eval eval) {
+        return (Binding) eval.getMemory().getBind();
+    }
+
+    // Use case: funcall @public functions
+    public Eval getEval() throws EngineException {
+        if (eval == null) {
+            eval = createEval("select where {}  ", null);
+        }
+        return eval;
+    }
+
+    /**
+     * event @update: take care of query @event functions 
+     * create current Eval with a ProcessVisitor
+    *
+     */
+    public void init(Query q, Mapping m) {
+        q.setInitMode(true);
+        super.query(q, m);
+        q.setInitMode(false);
+        // set Visitor ready to work (hence, it is not yet active, it is ready to be active)
+        getCurrentEval().getVisitor().setActive(false);
+    }
+    
+    // Default Visitor to execute @event functions
+    public ProcessVisitor getVisitor() {
+        try {
+            return getEval().getVisitor();
+        } catch (EngineException ex) {
+            return new ProcessVisitorDefault();
+        }
+    }
+  
+    // Visitor associated to current eval
+    // To execute @event functions
+    public ProcessVisitor getCurrentVisitor() {
+        if (getCurrentEval() == null || getCurrentEval().getVisitor() == null) {
+            return getVisitor();
+        }
+        return getCurrentEval().getVisitor();
+    }
+
+    Function getLinkedFunction(String name, IDatatype[] param) {
+        Function function = getFunction(name, param);
+        if (function == null) {
+            //setLinkedFunction(true);
+            getLinkedFunctionBasic(name);
+            function = getFunction(name, param);
+        }
+        return function;
+    }
+
+    Function getFunction(String name, IDatatype[] param) {
+        return Interpreter.getExtension().get(name, param.length);
+    }
+
+    /**
+     * Search a method
+     *
+     * @public @type us:Event us:start(?e, ?o)
+     */
+    Function getFunction(String name, String type, IDatatype[] param) {
+        return  Interpreter.getExtension().getMethod(
+                name, DatatypeMap.newResource(type),
+                param);
+    }
+
+    String basicParse(String path) throws EngineException {
+        QueryLoad ql = QueryLoad.create();
+        String pp = (path.endsWith("/")) ? path.substring(0, path.length() - 1) : path;
+        String str = null;
+        try {
+            if (pp.startsWith(NSManager.STL)) {
+                // @import <function/test.rq> within transformation such as st:turtle
+                // the import uri is st:function/test.rq
+                // consider it as a resource
+                String name = "/" + NSManager.nsm().strip(pp, NSManager.STL);
+                str = ql.getResource(name);
+            } else {
+                str = ql.readWE(pp);
+            }
+            return str;
+        } catch (LoadException | IOException ex) {
+            ex.printStackTrace();
+            logger.error(ex.toString());
+            throw new EngineException(ex);
+        }
+    }
+
+    /**
+     * Parse a function definition document use case: @import <uri>
+     */
+    @Override
+    public ASTQuery parse(String path) throws EngineException {
+        String str = basicParse(path);
+        Transformer t = transformer();
+        t.setBase(path);
+        return t.parse(str);
+    }
+
+    /**
+     * 1- Linked Function 2- owl:imports
+     */
+    @Override
+    public Query parseQuery(String path) {
+        try {
+            String str = basicParse(path);
+            Query q = compile(str, new Dataset().setBase(path));
+            return q;
+        } catch (EngineException ex) {
+            logger.error(ex.getMessage());
+        }
+        return null;
+    }
+
+    @Override
+    public void getLinkedFunction(String label) {
+        getTransformer().getLinkedFunction(label);
+    }
+
+    void getLinkedFunctionBasic(String label) {
+        getTransformer().getLinkedFunctionBasic(label);
+    }
+
+    Transformer getTransformer() {
+        if (transformer == null) {
+            transformer = Transformer.create();
+            transformer.setSPARQLEngine(this);
+            transformer.setLinkedFunction(isLinkedFunction());
+        }
+        return transformer;
+    }
+    
+    /***********************************************************************/
+    
+    /**
+     * @return the queryProcessUpdate
+     */
+    public QueryProcessUpdate getQueryProcessUpdate() {
+        return queryProcessUpdate;
+    }
+
+    /**
+     * @param queryProcessUpdate the queryProcessUpdate to set
+     */
+    public void setQueryProcessUpdate(QueryProcessUpdate queryProcessUpdate) {
+        this.queryProcessUpdate = queryProcessUpdate;
+    }
 }

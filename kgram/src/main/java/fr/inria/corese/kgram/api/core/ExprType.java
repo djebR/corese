@@ -188,7 +188,7 @@ public interface ExprType {
 	
 
 	public static int TURTLE 	= 227;
-	public static int LEVEL 	= 228;
+	public static int LEVEL         = 228;
 	public static int INDENT 	= 229;
 	public static int PPURI 	= 230;
 	public static int URILITERAL 	= 231;
@@ -206,7 +206,7 @@ public interface ExprType {
 	public static int STL_PREFIX 	= 242;
 	public static int STL_AGGREGATE = 243;
 	public static int STL_CONCAT    = 244;
-	public static int STL_GROUPCONCAT= 245;
+	public static int STL_GROUPCONCAT=245;
 	public static int STL_AND       = 246;
 	public static int STL_NUMBER    = 247;
 	public static int STL_LOAD      = 248;
@@ -287,7 +287,9 @@ public interface ExprType {
 	public static int XT_SORT       = 330;
 	public static int JAVACALL      = 331;
 	public static int DSCALL        = 332;
-	public static int JAVACAST       = 333;
+	public static int JAVACAST      = 333;
+        public static int ISEXTENSION   = 334;
+        public static int SAFE          = 335;
         
         public static int XT_MAPPING     = 400;
         public static int XT_ADD         = 401;
@@ -310,7 +312,7 @@ public interface ExprType {
         public static int XT_REJECT      = 417;
         public static int XT_VARIABLES   = 418;
         public static int XT_VALUES      = 419;
-        public static int XT_EDGE        = 420;
+        public static int XT_EDGES        = 420;
         public static int XT_TRIPLE      = 421;
         public static int XT_GEN_GET     = 422;
         public static int XT_DISPLAY     = 423;
@@ -361,10 +363,51 @@ public interface ExprType {
         public static int XT_SHAPE_GRAPH = 467;
         public static int XT_SHAPE_NODE  = 468;
         public static int XT_TOGRAPH     = 469;
-     
+        public static int XT_EXPAND      = 470;
+        public static int XT_NODE        = 471;
+        public static int XT_VERTEX      = 472;
+        public static int XT_JSON_OBJECT = 473;
+        public static int XT_HAS         = 474;
+        public static int XT_DEFINE      = 475;
+        public static int XT_DEGREE      = 476;
+        public static int XT_MINDEGREE   = 477;
+        public static int XT_INSERT      = 478;
+        public static int XT_DELETE      = 479;
+        public static int XT_VALID_URI   = 480;
+        public static int XT_STACK       = 481;
+        public static int XT_DATATYPE_VALUE= 482;
+        public static int XT_CAST        = 483;
+        public static int XT_ISFUNCTION  = 484;
+        public static int XT_EVENT       = 485;
+        public static int XT_SUBJECTS    = 486;
+        public static int XT_OBJECTS     = 487;
+        public static int XT_SYNTAX      = 488;
+        
+        
+             
         public static int SLICE       = 500;
         public static int EDGE_LEVEL  = 501;
         public static int DB          = 502;
+        public static int EDGE_ACCESS = 503;
+        
+        
+        public static int XT_NODE_PROPERTY   = 600;
+        public static int XT_NODE_TYPE  = 601;
+        public static int XT_ATTRIBUTES = 602;
+        public static int XT_ELEMENTS   = 603;
+        public static int XT_CHILDREN   = 604;
+        public static int XT_NODE_NAME   = 605;
+        public static int XT_NODE_VALUE  = 606;
+        public static int XT_TEXT_CONTENT= 607;
+        public static int XT_NODE_PARENT = 608;
+        public static int XT_NODE_DOCUMENT= 609;
+        public static int XT_NODE_ELEMENT= 610;
+        public static int XT_NAMESPACE   = 611;
+        public static int XT_BASE        = 612;
+        public static int XT_ATTRIBUTE   = 613;
+        public static int XT_HAS_ATTRIBUTE=614;
+        public static int XT_NODE_LOCAL_NAME=615;
+        public static int XT_NODE_FIRST_CHILD=616;
         
 
 }

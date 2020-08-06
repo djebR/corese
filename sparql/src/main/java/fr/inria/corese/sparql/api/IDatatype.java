@@ -7,7 +7,9 @@ import fr.inria.corese.kgram.api.core.ExpType;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.core.Loopable;
+import fr.inria.corese.kgram.api.core.PointerType;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This is an interface for all Corese datatypes.<br />
@@ -40,6 +42,8 @@ public interface IDatatype
     static final int DECIMAL = 13;
     static final int LONG = 14;
     static final int INTEGER = 15;
+    static final int URI_LITERAL = 16;
+    
     // Pseudo codes (target is Integer or String ...)
     static final int DAY = 21;
     static final int MONTH = 22;
@@ -63,60 +67,62 @@ public interface IDatatype
     public static final String EXTENDED_DATATYPE = ExpType.DT + "extended";
     public static final String ERROR_DATATYPE    = ExpType.DT + "error";
     
+    public static final String GRAPH_DATATYPE    = ExpType.DT + "graph";
+    
     public static final String ITERATE_DATATYPE  = ExpType.DT + "iterate";   
     public static final String MAP_DATATYPE      = ExpType.DT + "map";   
     public static final String LIST_DATATYPE     = ExpType.DT + "list";   
+    public static final String JSON_DATATYPE     = ExpType.DT + "json";   
+    public static final String XML_DATATYPE      = ExpType.DT + "xml";   
     public static final String SYSTEM            = ExpType.DT + "system";
-    public static final String POINTER           = ExpType.DT + "pointer";
-    public static final String GRAPH_DATATYPE    = ExpType.DT + "graph";
-    public static final String TRIPLE_DATATYPE   = ExpType.DT + "triple";
-    public static final String QUERY_DATATYPE    = ExpType.DT + "query";
-    public static final String MAPPINGS_DATATYPE = ExpType.DT + "mappings";
-    public static final String MAPPING_DATATYPE  = ExpType.DT + "mapping";
-    public static final String CONTEXT_DATATYPE  = ExpType.DT + "context";
-    public static final String NSM_DATATYPE      = ExpType.DT + "nsmanager";
-    public static final String METADATA_DATATYPE = ExpType.DT + "annotation";
-    public static final String EXPRESSION_DATATYPE = ExpType.DT + "expression";
-    public static final String DATAPRODUCER_DATATYPE = ExpType.DT + "producer";
-    public static final String PATH_DATATYPE       = ExpType.DT + "path";
-    public static final String VISITOR_DATATYPE    = ExpType.DT + "visitor";
-      
+     
     boolean isSkolem();
 
     boolean isXMLLiteral();
     
     boolean isUndefined();
+    boolean isGeneralized(); // isExtension or isUndefined
     
     boolean isArray();
     
     boolean isList();
     boolean isMap();
+    boolean isJSON();
+    
     
     boolean isLoop();
 
     List<IDatatype> getValues();
     List<IDatatype> getValueList();
+    IDatatype getValue(String var, int n);
     IDatatype toList();
-    IDatatypeList getList();  
+    IDatatypeList getList();
+    
+    default Map<IDatatype, IDatatype> getMap() {
+        return null;
+    }
+    
     default IDatatype member(IDatatype elem) {
         return null;
     }
 
     
     Iterable getLoop();
-
+    IDatatype has(IDatatype dt);
     IDatatype get(int n);
     IDatatype get(IDatatype name);
     IDatatype set(IDatatype name, IDatatype value);
-   
+    
 
     int size();
-         
+    IDatatype length();
+    
     @Override boolean isBlank();
     @Override boolean isLiteral();
     @Override boolean isURI();
-    IDatatype isWellFormed();
+    boolean conform(IDatatype dt);
     
+    IDatatype isWellFormed();
     IDatatype isBlankNode();
     IDatatype isLiteralNode();
     IDatatype isURINode();
@@ -125,7 +131,9 @@ public interface IDatatype
     
     boolean isPointer();
     
-    int pointerType();
+    boolean isExtension();
+    
+    PointerType pointerType();
     
     Pointerable getPointerObject();
 
@@ -136,7 +144,9 @@ public interface IDatatype
      * @return 0 if they are equals, an int > 0 if the datatype is greater than
      * dt2, an int < 0 if the datatype is lesser
      */
-    int compareTo(IDatatype dt2);
+    int compareTo(IDatatype dt);
+    // for TreeMap
+    int mapCompareTo(IDatatype dt);
     
     int compare(IDatatype dt) throws CoreseDatatypeException;
 
@@ -177,6 +187,8 @@ public interface IDatatype
     IDatatype display();
     
     void setVariable(boolean b);
+    
+    void setValue(int n);
 
     /**
      * ************************************************************************
@@ -251,40 +263,20 @@ public interface IDatatype
             throws CoreseDatatypeException;
     
     IDatatype eq(IDatatype dt);
-    IDatatype neq(IDatatype dt);
+    IDatatype ne(IDatatype dt);
     IDatatype ge(IDatatype dt);
     IDatatype gt(IDatatype dt);
     IDatatype lt(IDatatype dt);
     IDatatype le(IDatatype dt);
+    IDatatype neq(IDatatype dt);
     
-    /**
-     *
-     * @param iod
-     * @return iod.getValue() + this.getValue()
-     */
-    IDatatype plus(IDatatype iod);
-
-    /**
-     *
-     * @param iod
-     * @return iod.getValue() - this.getValue()
-     */
-    IDatatype minus(IDatatype iod);
-    IDatatype minus(long val);
-
-    /**
-     *
-     * @param iod
-     * @return iod.getValue() * this.getValue()
-     */
-    IDatatype mult(IDatatype iod);
-
-    /**
-     *
-     * @param iod
-     * @return iod.getValue() / this.getValue()
-     */
-    IDatatype div(IDatatype iod);
+   
+    IDatatype plus(IDatatype dt);   
+    IDatatype minus(IDatatype dt);
+    IDatatype mult(IDatatype dt);    
+    IDatatype divis(IDatatype dt);
+    IDatatype div(IDatatype dt);
+    IDatatype minus(long val);    
 
     /**
      * ************************************************************************
@@ -294,6 +286,8 @@ public interface IDatatype
      */
     IDatatype datatype();
     IDatatype getDatatype();
+    // IDatatype value of Pointer Object (eg XML TEXT Node as xsd:string)
+    IDatatype getObjectDatatypeValue();
 
     // same as getDatatype but URI return rdfs:Resource
     IDatatype getIDatatype();

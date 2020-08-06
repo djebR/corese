@@ -5,7 +5,7 @@ import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.triple.parser.Expression;
 import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.kgram.api.core.ExprType;
-import fr.inria.corese.kgram.api.core.Pointerable;
+import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.sparql.api.ComputerEval;
@@ -53,14 +53,15 @@ public class Funcall extends LDScript {
         String name = dt.stringValue();
         Function function = (Function) eval.getDefineGenerate(this, env, name, n);
         if (function == null) {
-            if (dt.pointerType() == Pointerable.EXPRESSION_POINTER) {
+            if (dt.pointerType() == PointerType.EXPRESSION) {
                 // lambda expression, arity is not correct                
             } else if (env.getEval() != null) {
                 env.getEval().getSPARQLEngine().getLinkedFunction(name);
-                function = (Function) eval.getDefineGenerate(this, env, name, n);
+                function = eval.getDefineGenerate(this, env, name, n);
 
                 if (function == null) {
-                    logger.error("Undefined function: " + name);
+                    logger.error("Undefined function: " + name + " arity: " + n);
+                    logger.error(this.toString());
                 }
             }
         }

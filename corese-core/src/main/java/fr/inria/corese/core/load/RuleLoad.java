@@ -20,6 +20,7 @@ import org.xml.sax.SAXException;
 import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.NSManager;
 import fr.inria.corese.core.rule.RuleEngine;
+import org.w3c.dom.Attr;
 
 /**
  * Rule Loader as construct-where SPARQL Queries Can also load Corese rule
@@ -35,6 +36,8 @@ public class RuleLoad {
     static final String NS2 = "http://ns.inria.fr/edelweiss/2011/rule#";
     static final String NS1 = "http://ns.inria.fr/corese/2008/rule#";
     static final String STL = NSManager.STL;
+    static final String RDF = NSManager.RDF;
+    static final String[] NAMESPACE = {NS, STL, NS2, NS1};
     static final String COS = NSManager.COS;
     static final String BODY = "body";
     static final String RULE = "rule";
@@ -45,6 +48,9 @@ public class RuleLoad {
     static final String THEN = "then";
     static final String CONST = "construct";
     static final String WHERE = "where";
+    static final String ABOUT = "about";
+    static final String ID = "ID";
+
     RuleEngine engine;
     private String base;
 
@@ -118,26 +124,81 @@ public class RuleLoad {
             logger.error(e.getMessage());
         }
     }
+    
+    
 
     void load(Document doc) {
 
-        NodeList list = doc.getElementsByTagNameNS(NS, BODY);
+        NodeList list = null;
         
-        if (list.getLength() == 0) {
-            list = doc.getElementsByTagNameNS(STL, BODY);
+        for (String ns : NAMESPACE) {
+            list = doc.getElementsByTagNameNS(ns, RULE);           
+            if (list.getLength() != 0) {
+                break;
+            }
         }
 
-        if (list.getLength() == 0) {
-            list = doc.getElementsByTagNameNS(NS2, BODY);
+        if (list == null || list.getLength() == 0) {
+            error();
+            return;
         }
 
+        for (int i = 0; i < list.getLength(); i++) {
+            Element rule = (Element) list.item(i); 
+            Attr att = rule.getAttributeNodeNS(RDF, ABOUT);
+            if (att == null) {
+                att = rule.getAttributeNodeNS(RDF, ID);
+            }
+            String uri = null;
+            if (att != null) {
+                uri = att.getValue();
+            }
+            Element body = getElement(rule, BODY);
+            if (body == null) {
+                body = getElement(rule, VALUE);
+            }
+            String text  = body.getTextContent();
+            try {
+                engine.defRule(uri, text);
+            } catch (EngineException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    Element getElement(Element elem, String name) {
+        for (String ns : NAMESPACE) {
+           Element e = getElement(elem, ns, name);
+           if (e != null) {
+               return e;
+           }
+        }
+        return null;
+    }
+    
+    Element getElement(Element elem, String ns, String name) {
+        NodeList list = elem.getElementsByTagNameNS(ns, name);
         if (list.getLength() == 0) {
+            return null;
+        }
+        return (Element) list.item(0);
+    }
+    
+    void load1(Document doc) {
+
+        NodeList list = null;
+        
+        for (String ns : NAMESPACE) {
+            list = doc.getElementsByTagNameNS(ns, BODY);           
+            if (list.getLength() != 0) {
+                break;
+            }
+        }
+
+        if (list == null || list.getLength() == 0) {
             list = doc.getElementsByTagNameNS(NS1, VALUE);
         }
         
-        if (list.getLength() == 0) {
-            list = doc.getElementsByTagNameNS(NS1, BODY);
-        }
 
         if (list.getLength() == 0) {
             error();
@@ -146,6 +207,7 @@ public class RuleLoad {
 
         for (int i = 0; i < list.getLength(); i++) {
             Node node = list.item(i);
+            
             String rule = node.getTextContent();
             try {
                 engine.defRule(rule);
@@ -157,8 +219,8 @@ public class RuleLoad {
   
     void error() {
         logger.error("Rule Namespace should be one of:");
-        logger.error(NS2);
-        logger.error(NS1);
+        logger.error(NS);
+        logger.error(STL);
     }
 
     String getRule(Element econst, Element ewhere) {

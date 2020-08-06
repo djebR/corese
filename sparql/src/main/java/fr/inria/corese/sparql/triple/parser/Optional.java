@@ -55,6 +55,10 @@ public class Optional extends Binary {
         this(e1);
         add(e2);
     }
+    
+    public static Optional create(Exp e1, Exp e2) {
+        return new Optional(e1, e2);
+    }
 
     public static Optional create(Exp exp) {
         return new Optional(exp);
@@ -110,10 +114,17 @@ public class Optional extends Binary {
         return sb;
     }
 
-    @Override
-    void getVariables(List<Variable> list) {
+    void basicVariables(VariableScope sort, List<Variable> list) {
         if (size() > 0) {
-            get(0).getVariables(list);
+            get(0).getVariables(sort, list);
+        }
+    }
+    
+    @Override
+    void getVariables(VariableScope sort, List<Variable> list) {
+        switch (sort.getScope()) {
+            case SUBSCOPE:  basicVariables(sort, list); break;
+            default:  super.getVariables(sort, list); break;
         }
     }
 

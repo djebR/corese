@@ -16,6 +16,7 @@ import fr.inria.corese.sparql.triple.cst.RDFS;
 import fr.inria.corese.sparql.triple.parser.Constant;
 import fr.inria.corese.sparql.triple.parser.NSManager;
 import fr.inria.corese.kgram.api.core.Node;
+import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.core.TripleStore;
 import fr.inria.corese.kgram.path.Path;
@@ -365,6 +366,11 @@ public class CoreseDatatype
     public boolean isMap() {
         return false;
     }
+    
+     @Override
+    public boolean isJSON() {
+        return false;
+    }
 
     @Override
     public boolean isLoop() {
@@ -392,6 +398,11 @@ public class CoreseDatatype
             }
         }
         return list;
+    }
+    
+    @Override
+    public IDatatype getValue(String var, int n) {
+        return get(n);
     }
     
     @Override
@@ -435,6 +446,11 @@ public class CoreseDatatype
     public Iterable getLoop() {
         return null;
     }
+    
+    @Override
+    public IDatatype has(IDatatype key) {
+        return null;
+    }
 
     @Override
     public IDatatype get(int n) {
@@ -455,9 +471,20 @@ public class CoreseDatatype
     public int size() {
         return 0;
     }
+    
+    @Override
+    public IDatatype length() {
+        return DatatypeMap.newInstance(size());
+    }
 
     @Override
     public boolean isUndefined() {
+        return false;
+    }
+    
+    // isUndefined or isExtension
+    @Override
+    public boolean isGeneralized() {
         return false;
     }
 
@@ -525,6 +552,12 @@ public class CoreseDatatype
     public boolean isPointer() {
         return false;
     }
+    
+    // CoresePointer of LDScript Extension datatype
+    @Override
+    public boolean isExtension() {
+        return false;
+    }
 
     @Override
     public Pointerable getPointerObject() {
@@ -532,8 +565,8 @@ public class CoreseDatatype
     }
 
     @Override
-    public int pointerType() {
-        return Pointerable.UNDEF_POINTER;
+    public PointerType pointerType() {
+        return PointerType.UNDEF;
     }
 
     public boolean isDecimal() {
@@ -620,6 +653,10 @@ public class CoreseDatatype
 
     @Override
     public void setValue(String str) {
+    }
+    
+    @Override
+    public void setValue(int n) {
     }
 
     @Override
@@ -774,6 +811,7 @@ public class CoreseDatatype
             case URI:
             case BLANK:
             case XMLLITERAL:
+            case URI_LITERAL:
 
                 if (code == other) {
                     return this.getLabel().compareTo(d2.getLabel());
@@ -947,6 +985,12 @@ public class CoreseDatatype
         return number(getLabel().compareTo(d2.getLabel()));
     }
     
+    // for CoreseMap TreeMap
+    @Override
+    public int mapCompareTo(IDatatype dt) {
+        return compareTo(dt);
+    }
+    
     int number(int val) {
         if (val == 0) return 0;
         if (val < 0) return -1;
@@ -1070,6 +1114,11 @@ public class CoreseDatatype
 
     @Override
     public IDatatype neq(IDatatype dt) {
+        return ne(dt);
+    }
+    
+     @Override
+    public IDatatype ne(IDatatype dt) {
         try {
             return (!this.equalsWE(dt)) ? TRUE : FALSE;
         } catch (CoreseDatatypeException ex) {
@@ -1152,6 +1201,11 @@ public class CoreseDatatype
     public IDatatype div(IDatatype iod) {
         return null;
     }
+    
+    @Override
+    public IDatatype divis(IDatatype iod) {
+        return div(iod);
+    }
 
     /**
      * Default definitions of datatype operators return type error or false
@@ -1181,6 +1235,11 @@ public class CoreseDatatype
 
     @Override
     public IDatatype getDatatypeValue() {
+        return this;
+    }
+    
+    @Override
+    public IDatatype getObjectDatatypeValue() {
         return this;
     }
 
@@ -1243,6 +1302,14 @@ public class CoreseDatatype
                 return dt.getCode() == FLOAT;
         }
         return true;
+    }
+    
+    @Override
+    public boolean conform(IDatatype type) {
+        if (getDatatype().equals(type)) {
+            return true;
+        }       
+        return false;
     }
     
     @Override

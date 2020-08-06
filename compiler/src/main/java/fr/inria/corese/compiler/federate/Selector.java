@@ -21,6 +21,7 @@ import fr.inria.corese.sparql.triple.parser.Query;
 import fr.inria.corese.sparql.triple.parser.Source;
 import fr.inria.corese.sparql.triple.parser.Term;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 
@@ -68,6 +69,10 @@ public class Selector {
         trace = ast.hasMetadata(Metadata.TRACE);
     }
     
+    /**
+     * BUG when service 1.0 & service 1.1 and there are triples in 1.1
+     * the triples of 1.0 are considered as absent although they are present as predicate
+     */
     void process() {
         if (sparql10) {
             process10(getServiceList(true));
@@ -99,9 +104,13 @@ public class Selector {
     }
     
     void process11(List<Constant> list) {
+        if (list.isEmpty()) {
+            return;
+        }
+        Date d1 = new Date();
         ASTQuery aa = createSelector(list, false);
         Mappings map = exec.basicQuery(aa);
-
+        
         for (Mapping m : map) {
             IDatatype serv = (IDatatype) m.getValue(SERVER_VAR);
             
@@ -122,11 +131,12 @@ public class Selector {
             }
             
         }
-
-        trace(map);
+        Date d2 = new Date();
+        trace(map, d1, d2);
     }
           
     void process10(List<Constant> list) {
+        Date d1 = new Date();
         ASTQuery aa = createSelector(list, true);
         Mappings map = exec.basicQuery(aa);
         if (ast.isDebug()) {
@@ -143,7 +153,8 @@ public class Selector {
             }
         }
         
-        trace(map);
+        Date d2 = new Date();
+        trace(map, d1, d2);
     }
     
     List<Atom> getPredicateService(Constant pred) {
@@ -161,7 +172,10 @@ public class Selector {
         return getPredicateService(t.getPredicate().getConstant());
     }
    
-    void trace(Mappings map) {
+    void trace(Mappings map, Date d1, Date d2) {
+        if (ast.hasMetadata(Metadata.TRACE)) {
+            System.out.println("Selection Time: " + (d2.getTime() - d1.getTime()) / 1000.0);
+        }
         if (ast.isDebug()) {
             System.out.println("Triple Selection");
             for (String pred : predicateService.keySet()) {
@@ -310,47 +324,85 @@ public class Selector {
             }                      
         }
         
-        for (Triple t : ast.getTripleList()) {
-            if (selectable(t)) {
-                // triple with constant
+        selectTriple(aa, bgp, i);
                 
-                Variable var;
-                if (count) {
-                    var = count(aa, bgp, t, i);
-                }
-                else {
-                    var = exist(aa, bgp, t, i);
-                }
-                declare(t, var);
-                                             
-                i++;
-            }
-        }
-        
         return bgp;
     }
     
+    void selectTriple(ASTQuery aa, BasicGraphPattern bgp, int i) {
+        if (vis.isSelectFilter()) {
+            selectTripleFilter(aa, bgp, i);
+        }
+        else {
+            selectTripleBasic(aa, bgp, i);
+        }
+    }
+
+    
+    void selectTripleFilter(ASTQuery aa, BasicGraphPattern bgp, int i) {
+        List<BasicGraphPattern> list = new SelectorFilter(ast).process();
+        for (BasicGraphPattern exp : list) {
+            Triple t = exp.get(0).getTriple();
+            if (exp.size() > 1 || selectable(t)) {
+                Variable var;
+                if (count) {
+                    var = count(aa, bgp, exp, i);
+                } else {
+                    var = exist(aa, bgp, exp, i);
+                }
+                declare(t, var);
+                i++;
+            }
+        }
+    }
+
+    
+    void selectTripleBasic(ASTQuery aa, BasicGraphPattern bgp, int i) {
+        for (Triple t : ast.getTripleList()) {
+            if (selectable(t)) {
+                // triple with constant
+
+                Variable var;
+                if (count) {
+                    var = count(aa, bgp, t, i);
+                } else {
+                    var = exist(aa, bgp, t, i);
+                }
+                declare(t, var);
+
+                i++;
+            }
+        }
+    }
+    
     Variable count(ASTQuery aa, BasicGraphPattern bgp, Triple t, int i) {
+        return count(aa, bgp, aa.bgp(t), i);
+    }
+    
+    Variable count(ASTQuery aa, BasicGraphPattern bgp, BasicGraphPattern bb, int i) {
         ASTQuery a = aa.subCreate();
         
         Term fun = Term.function(Processor.COUNT);
-        Variable var = Variable.create("?c_" + i);
+        Variable var = a.variable("?c_" + i);
         a.defSelect(var, fun);
         
         Term bound = Term.create(">", var, Constant.create(0));
-        Variable varBound = Variable.create("?v_" + i);
+        Variable varBound = a.variable("?v_" + i);
         aa.defSelect(varBound, bound);
         
-        a.setBody(BasicGraphPattern.create(t));
+        a.setBody(bb);
         
-        bgp.add(BasicGraphPattern.create(Query.create(a)));
+        bgp.add(a.bgp(Query.create(a)));
         
         return varBound;
     }
     
     Variable exist(ASTQuery aa, BasicGraphPattern bgp, Triple t, int i) {
-        BasicGraphPattern bb = BasicGraphPattern.create(t);
-        Variable var = Variable.create("?b" + i++);
+        return exist(aa, bgp, aa.bgp(t), i);
+    }
+    
+    Variable exist(ASTQuery aa, BasicGraphPattern bgp, BasicGraphPattern bb, int i) {
+        Variable var = aa.variable("?b" + i++);
         Binding exist = Binding.create(aa.createExist(bb, false), var);
         bgp.add(exist);
         return var;
@@ -358,8 +410,7 @@ public class Selector {
     
     
     boolean selectable(Triple t) {
-        return //t.getPredicate().isConstant() &&
-                 (t.getSubject().isConstant() || t.getObject().isConstant());
+        return (t.getSubject().isConstant() || t.getObject().isConstant());
     }
     
     /**

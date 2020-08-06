@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.logging.Level;
+//import static java.util.logging.Level.ALL;
 
 /**
  * <p>Title: Corese</p>
@@ -61,23 +62,10 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
         
         // exp is a filter
         public Exp add(Expression exp) {
-            add(Triple.create(exp));
+            add(ASTQuery.createFilter(exp));
             return this;
         }
-        
-//        public  boolean add2(Exp exp){
-//		if (exp.isBinary() && exp.size() == 1){
-//			BasicGraphPattern bgp = BasicGraphPattern.create();
-//			for (Exp e : body){
-//				bgp.add(e);
-//			}
-//			exp.add(0, bgp);
-//			body.clear();
-//			return add(exp);
-//		}
-//		return body.add(exp);
-//	}
-        
+               
         // for structured exp only
         public void include(Exp exp) {
             for (Exp ee : exp) {
@@ -105,6 +93,10 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
 	boolean isBinary(){
 		return isMinus() || isOptional();
 	}
+        
+        public boolean isBinaryExp() {
+            return false;
+        }
 	
 	public  void add(int n, Exp exp){
 		 body.add(n, exp);
@@ -140,6 +132,19 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
             return false;
         }
         
+        public boolean isConnect(Exp exp) {
+            return intersect(getSubscopeVariables(), exp.getSubscopeVariables());
+        }
+        
+        boolean intersect(List<Variable> l1, List<Variable> l2) {
+            for (Variable var : l1) {
+                if (l2.contains(var)) {
+                    return true;
+                }                       
+            }
+            return false;
+        }
+        
         // BGP body of service, graph
        public Exp getBodyExp() {
             if (size() > 0) {
@@ -147,25 +152,33 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
             }
             return this;
        }
-                 
+       
+       public void setBodyExp(Exp exp) {
+           set(0, exp);
+       }
+               
+       /**
+        * Variables that are surely bound in this Exp
+        * left part of optional & minus, common variables of union branchs
+        * It is not the list of all variables
+        */
         public List<Variable> getVariables() {
-            ArrayList<Variable> list = new ArrayList<>();
-            getVariables(list);
-            return list;
-        }
+              return getSubscopeVariables();
+        }        
         
         void add(Variable var, List<Variable> list) {
             if (! list.contains(var)) {
                 list.add(var);
             }
-        }
-        
-        void getVariables(List<Variable> list) {
+        }      
+               
+        @Override
+        void getVariables(VariableScope sort, List<Variable> list) {
             for (Exp exp : this) {
-                exp.getVariables(list);
+                exp.getVariables(sort, list);
             }
         }
-	
+        	
 	public ASTQuery getQuery(){
 		return null;
 	}
@@ -185,6 +198,10 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
 	public Triple getTriple(){
 		return null;
 	}
+        
+        public Binding getBind() {
+            return null;
+        }
 	
 	public Expression getFilter(){
 		return null;
@@ -218,7 +235,7 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
 	}
 	
 	public void append(Expression e){
-		add(Triple.create(e));
+		add(e);
 	}
 	
 
@@ -289,12 +306,12 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
 	 * If the triples are all filter
 	 * @return
 	 */
-	boolean isExp(){
-		for (int i=0; i<size(); i++){
-			if (! eget(i).isExp()) return false;
-		}
-		return true;
-	}
+//	boolean isExp(){
+//		for (int i=0; i<size(); i++){
+//			if (! eget(i).isExp()) return false;
+//		}
+//		return true;
+//	}
 
 	public boolean isTriple(){
 		return false;
@@ -491,6 +508,26 @@ public abstract class Exp extends TopExp implements Iterable<Exp> {
                 exp.visit(v);
             }
         }
+        
+        Exp expandList() {
+            BasicGraphPattern bgp = BasicGraphPattern.create();
+            expandList(bgp);
+            return bgp;
+        }
+
+        
+        void expandList(Exp exp) {
+            for (Exp e : this) {
+                if (e.isTriple()) {
+                    exp.add(e);
+                }
+                else if (e.isRDFList()) {
+                    e.expandList(exp);
+                }
+            }
+        }
+        
+        
         
 	
 }

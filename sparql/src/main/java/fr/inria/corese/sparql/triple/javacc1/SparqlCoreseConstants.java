@@ -20,192 +20,233 @@ public interface SparqlCoreseConstants {
   int A2Z = 19;
   int A2ZN = 20;
   int KW_A = 21;
-  int INV = 22;
-  int SHORT = 23;
-  int SHORTALL = 24;
-  int DEPTH = 25;
-  int BREADTH = 26;
-  int LIST = 27;
-  int BASE = 28;
-  int PREFIX = 29;
-  int SELECT = 30;
-  int DESCRIBE = 31;
-  int CONSTRUCT = 32;
-  int RULE = 33;
-  int ASK = 34;
-  int TEMPLATE = 35;
-  int DISTINCT = 36;
-  int SEPARATOR = 37;
-  int REDUCED = 38;
-  int LIMIT = 39;
-  int OFFSET = 40;
-  int ORDER = 41;
-  int BY = 42;
-  int RELAX = 43;
-  int ASC = 44;
-  int DESC = 45;
-  int NAMED = 46;
-  int FROM = 47;
-  int WHERE = 48;
-  int AND = 49;
-  int GRAPH = 50;
-  int SERVICE = 51;
-  int REC = 52;
-  int STATE = 53;
-  int LEAF = 54;
-  int OPTIONAL = 55;
-  int UNION = 56;
-  int MINUSP = 57;
-  int NOT = 58;
-  int SCOPE = 59;
-  int LET = 60;
-  int SET = 61;
-  int FOR = 62;
-  int LOOP = 63;
-  int IF = 64;
-  int THEN = 65;
-  int ELSE = 66;
-  int EXIST = 67;
-  int FILTER = 68;
-  int LOAD = 69;
-  int CLEAR = 70;
-  int DROP = 71;
-  int CREATE = 72;
-  int ADD = 73;
-  int TO = 74;
-  int MOVE = 75;
-  int COPY = 76;
-  int INSERT = 77;
-  int DELETE = 78;
-  int WITH = 79;
-  int USING = 80;
-  int DEFAUT = 81;
-  int ALL = 82;
-  int INTO = 83;
-  int SILENT = 84;
-  int DATA = 85;
-  int BOUND = 86;
-  int STR = 87;
-  int DTYPE = 88;
-  int LANG = 89;
-  int LANGMATCHES = 90;
-  int IS_URI = 91;
-  int IS_IRI = 92;
-  int IS_BLANK = 93;
-  int IS_LITERAL = 94;
-  int REGEX = 95;
-  int TRUE = 96;
-  int FALSE = 97;
-  int ONE = 98;
-  int S_MORE = 99;
-  int MERGE = 100;
-  int DISPLAY = 101;
-  int PRAGMA = 102;
-  int D_RDF = 103;
-  int D_JSON = 104;
-  int D_FLAT = 105;
-  int D_ASQUERY = 106;
-  int D_XML = 107;
-  int D_BLANK = 108;
-  int THRESHOLD = 109;
-  int RESULT = 110;
-  int PROJECTION = 111;
-  int GROUP = 112;
-  int FORMAT = 113;
-  int BOX = 114;
-  int IBOX = 115;
-  int SBOX = 116;
-  int HAVING = 117;
-  int VALUES = 118;
-  int BIND = 119;
-  int UNDEF = 120;
-  int COUNT = 121;
-  int SOURCE = 122;
-  int SCORE = 123;
-  int AS = 124;
-  int SORT = 125;
-  int REVERSE = 126;
-  int OR = 127;
-  int OPTION = 128;
-  int SORTED = 129;
-  int ALL2 = 130;
-  int CURRENT = 131;
-  int ONE2 = 132;
-  int DIRECT2 = 133;
-  int COLON2 = 134;
-  int DISTANCE = 135;
-  int DEBUG = 136;
-  int CHECK = 137;
-  int NOSORT = 138;
-  int TUPLE = 139;
-  int TRIPLE = 140;
-  int XPATH = 141;
-  int FUNCTION = 142;
-  int LAMBDA = 143;
-  int QUERY = 144;
-  int PACKAGE = 145;
-  int IN = 146;
-  int EQ2 = 147;
-  int NE2 = 148;
-  int BEGIN_WITH = 149;
-  int STRICT_SPEC = 150;
-  int SPEC = 151;
-  int SAME = 152;
-  int GENERALISATION = 153;
-  int STRICT_GENERALISATION = 154;
-  int EQ_LANG = 155;
-  int SIMPLE_STRING = 156;
-  int INTEGER = 157;
-  int DECIMAL = 158;
-  int DOUBLE = 159;
-  int EXPONENT = 160;
-  int QUOTE_3D = 161;
-  int QUOTE_3S = 162;
-  int ECHAR = 163;
-  int STRING_LITERAL1 = 164;
-  int STRING_LITERAL2 = 165;
-  int STRING_LITERAL_LONG1 = 166;
-  int STRING_LITERAL_LONG2 = 167;
-  int DIGITS = 168;
-  int HEX = 169;
-  int LPAREN = 170;
-  int RPAREN = 171;
-  int LBRACE = 172;
-  int RBRACE = 173;
-  int LBRACKET = 174;
-  int RBRACKET = 175;
-  int ANON = 176;
-  int SEMICOLON = 177;
-  int COMMA = 178;
-  int DOT = 179;
-  int EQ = 180;
-  int NE = 181;
-  int GT = 182;
-  int LT = 183;
-  int LE = 184;
-  int GE = 185;
-  int BANG = 186;
-  int TILDE = 187;
-  int COLON = 188;
-  int SC_OR = 189;
-  int SC_AND = 190;
-  int PLUS = 191;
-  int MINUS = 192;
-  int STAR = 193;
-  int SLASH = 194;
-  int QM = 195;
-  int BAR = 196;
-  int DATATYPE = 197;
-  int AT = 198;
-  int NCCHAR1p = 199;
-  int NCCHAR1 = 200;
-  int NCCHAR = 201;
-  int NCNAME_PREFIX = 202;
-  int NCNAME = 203;
-  int BLANKNAME = 204;
-  int VARNAME = 205;
-  int LOCAL_ESC = 206;
-  int PERCENT = 207;
+  int BASE = 22;
+  int PREFIX = 23;
+  int SELECT = 24;
+  int DESCRIBE = 25;
+  int CONSTRUCT = 26;
+  int RULE = 27;
+  int ASK = 28;
+  int TEMPLATE = 29;
+  int DISTINCT = 30;
+  int SEPARATOR = 31;
+  int REDUCED = 32;
+  int LIMIT = 33;
+  int OFFSET = 34;
+  int ORDER = 35;
+  int BY = 36;
+  int RELAX = 37;
+  int ASC = 38;
+  int DESC = 39;
+  int NAMED = 40;
+  int FROM = 41;
+  int WHERE = 42;
+  int GRAPH = 43;
+  int SERVICE = 44;
+  int OPTIONAL = 45;
+  int UNION = 46;
+  int MINUSP = 47;
+  int NOT = 48;
+  int SCOPE = 49;
+  int LET = 50;
+  int LETDYN = 51;
+  int SET = 52;
+  int FOR = 53;
+  int LOOP = 54;
+  int IF = 55;
+  int THEN = 56;
+  int ELSE = 57;
+  int EXIST = 58;
+  int FILTER = 59;
+  int LOAD = 60;
+  int CLEAR = 61;
+  int DROP = 62;
+  int CREATE = 63;
+  int ADD = 64;
+  int TO = 65;
+  int MOVE = 66;
+  int COPY = 67;
+  int INSERT = 68;
+  int DELETE = 69;
+  int WITH = 70;
+  int USING = 71;
+  int DEFAUT = 72;
+  int ALL = 73;
+  int INTO = 74;
+  int SILENT = 75;
+  int DATA = 76;
+  int ERROR = 77;
+  int RETURN = 78;
+  int AGGREGATE = 79;
+  int UNNEST = 80;
+  int MAP = 81;
+  int MAPLIST = 82;
+  int MAPFIND = 83;
+  int MAPFINDLIST = 84;
+  int MAPMERGE = 85;
+  int MAPEVERY = 86;
+  int MAPANY = 87;
+  int FUNCALL = 88;
+  int EVAL = 89;
+  int METHOD = 90;
+  int APPLY = 91;
+  int REDUCE = 92;
+  int SELF = 93;
+  int BOUND = 94;
+  int COALESCE = 95;
+  int SAMETERM = 96;
+  int STR = 97;
+  int STRDT = 98;
+  int STRLANG = 99;
+  int BNODE = 100;
+  int URI = 101;
+  int IRI = 102;
+  int UUID = 103;
+  int STRUUID = 104;
+  int DTYPE = 105;
+  int LANG = 106;
+  int LANGMATCHES = 107;
+  int CONTAINS = 108;
+  int STRSTARTS = 109;
+  int STRENDS = 110;
+  int STRLEN = 111;
+  int SUBSTR = 112;
+  int UCASE = 113;
+  int LCASE = 114;
+  int STRBEFORE = 115;
+  int STRAFTER = 116;
+  int ENCODE_FOR_URI = 117;
+  int CONCAT = 118;
+  int REPLACE = 119;
+  int IS_URI = 120;
+  int IS_IRI = 121;
+  int IS_BLANK = 122;
+  int IS_LITERAL = 123;
+  int IS_NUMERIC = 124;
+  int IS_EXTENSION = 125;
+  int IS_SAFE = 126;
+  int IS_UNDEFINED = 127;
+  int IS_WELLFORMED = 128;
+  int REGEX = 129;
+  int RAND = 130;
+  int ROUND = 131;
+  int FLOOR = 132;
+  int CEIL = 133;
+  int POWER = 134;
+  int ABS = 135;
+  int NOW = 136;
+  int YEAR = 137;
+  int MONTH = 138;
+  int DAY = 139;
+  int HOURS = 140;
+  int MINUTES = 141;
+  int SECONDS = 142;
+  int TIMEZONE = 143;
+  int TZ = 144;
+  int MD5 = 145;
+  int SHA1 = 146;
+  int SHA256 = 147;
+  int SHA384 = 148;
+  int SHA512 = 149;
+  int GROUP_CONCAT = 150;
+  int SUM = 151;
+  int SAMPLE = 152;
+  int AVG = 153;
+  int MIN = 154;
+  int MAX = 155;
+  int TRUE = 156;
+  int FALSE = 157;
+  int S_MORE = 158;
+  int PRAGMA = 159;
+  int GROUP = 160;
+  int FORMAT = 161;
+  int BOX = 162;
+  int IBOX = 163;
+  int SBOX = 164;
+  int HAVING = 165;
+  int VALUES = 166;
+  int BIND = 167;
+  int UNDEF = 168;
+  int COUNT = 169;
+  int SCORE = 170;
+  int AS = 171;
+  int SORTED = 172;
+  int ALL2 = 173;
+  int CURRENT = 174;
+  int DIRECT2 = 175;
+  int COLON2 = 176;
+  int DEBUG = 177;
+  int CHECK = 178;
+  int NOSORT = 179;
+  int TUPLE = 180;
+  int TRIPLE = 181;
+  int XPATH = 182;
+  int FUNCTION = 183;
+  int LAMBDA = 184;
+  int QUERY = 185;
+  int PACKAGE = 186;
+  int IN = 187;
+  int EQ2 = 188;
+  int NE2 = 189;
+  int BEGIN_WITH = 190;
+  int STRICT_SPEC = 191;
+  int SPEC = 192;
+  int SAME = 193;
+  int GENERALISATION = 194;
+  int STRICT_GENERALISATION = 195;
+  int EQ_LANG = 196;
+  int INTEGER = 197;
+  int DECIMAL = 198;
+  int DOUBLE = 199;
+  int EXPONENT = 200;
+  int QUOTE_3D = 201;
+  int QUOTE_3S = 202;
+  int ECHAR = 203;
+  int STRING_LITERAL1 = 204;
+  int STRING_LITERAL2 = 205;
+  int STRING_LITERAL_LONG1 = 206;
+  int STRING_LITERAL_LONG2 = 207;
+  int DIGITS = 208;
+  int HEX = 209;
+  int LPAREN = 210;
+  int RPAREN = 211;
+  int LBRACE = 212;
+  int RBRACE = 213;
+  int LBRACKET = 214;
+  int RBRACKET = 215;
+  int ANON = 216;
+  int SEMICOLON = 217;
+  int COMMA = 218;
+  int DOT = 219;
+  int EQ = 220;
+  int NE = 221;
+  int GT = 222;
+  int LT = 223;
+  int LE = 224;
+  int GE = 225;
+  int BANG = 226;
+  int TILDE = 227;
+  int COLON = 228;
+  int SC_OR = 229;
+  int SC_AND = 230;
+  int PLUS = 231;
+  int MINUS = 232;
+  int STAR = 233;
+  int SLASH = 234;
+  int QM = 235;
+  int BAR = 236;
+  int DATATYPE = 237;
+  int AT = 238;
+  int VAR3 = 239;
+  int NCCHAR1p = 240;
+  int NCCHAR1 = 241;
+  int NCCHAR = 242;
+  int NCNAME_PREFIX = 243;
+  int NCNAME = 244;
+  int BLANKNAME = 245;
+  int VARNAME = 246;
+  int LOCAL_ESC = 247;
+  int PERCENT = 248;
 
   int DEFAULT = 0;
 
@@ -232,12 +273,6 @@ public interface SparqlCoreseConstants {
     "<A2Z>",
     "<A2ZN>",
     "\"a\"",
-    "\"i\"",
-    "\"s\"",
-    "<SHORTALL>",
-    "\"d\"",
-    "\"b\"",
-    "\"list\"",
     "\"base\"",
     "\"prefix\"",
     "\"select\"",
@@ -259,18 +294,15 @@ public interface SparqlCoreseConstants {
     "\"named\"",
     "\"from\"",
     "\"where\"",
-    "\"and\"",
     "\"graph\"",
     "\"service\"",
-    "\"rec\"",
-    "\"state\"",
-    "\"leaf\"",
     "\"optional\"",
     "\"union\"",
     "\"minus\"",
     "\"not\"",
     "\"scope\"",
     "\"let\"",
+    "\"letdyn\"",
     "\"set\"",
     "\"for\"",
     "\"loop\"",
@@ -296,32 +328,89 @@ public interface SparqlCoreseConstants {
     "\"into\"",
     "\"silent\"",
     "\"data\"",
+    "\"error\"",
+    "\"return\"",
+    "\"aggregate\"",
+    "\"unnest\"",
+    "\"map\"",
+    "\"maplist\"",
+    "\"mapfind\"",
+    "\"mapfindlist\"",
+    "\"mapmerge\"",
+    "\"mapevery\"",
+    "\"mapany\"",
+    "\"funcall\"",
+    "\"eval\"",
+    "\"method\"",
+    "\"apply\"",
+    "\"reduce\"",
+    "\"self\"",
     "\"bound\"",
+    "\"coalesce\"",
+    "\"sameTerm\"",
     "\"str\"",
+    "\"strdt\"",
+    "\"strlang\"",
+    "\"bnode\"",
+    "\"uri\"",
+    "\"iri\"",
+    "\"uuid\"",
+    "\"struuid\"",
     "\"datatype\"",
     "\"lang\"",
     "\"langmatches\"",
+    "\"contains\"",
+    "\"strstarts\"",
+    "\"strends\"",
+    "\"strlen\"",
+    "\"substr\"",
+    "\"ucase\"",
+    "\"lcase\"",
+    "\"strbefore\"",
+    "\"strafter\"",
+    "\"encode_for_uri\"",
+    "\"concat\"",
+    "\"replace\"",
     "\"isURI\"",
     "\"isIRI\"",
     "\"isBlank\"",
     "\"isLiteral\"",
+    "\"isNumeric\"",
+    "\"isExtension\"",
+    "\"safe\"",
+    "\"isUndefined\"",
+    "\"isWellFormed\"",
     "\"regex\"",
+    "\"rand\"",
+    "\"round\"",
+    "\"floor\"",
+    "\"ceil\"",
+    "\"power\"",
+    "\"abs\"",
+    "\"now\"",
+    "\"year\"",
+    "\"month\"",
+    "\"day\"",
+    "\"hours\"",
+    "\"minutes\"",
+    "\"seconds\"",
+    "\"timezone\"",
+    "\"tz\"",
+    "\"md5\"",
+    "\"sha1\"",
+    "\"sha256\"",
+    "\"sha384\"",
+    "\"sha512\"",
+    "\"group_concat\"",
+    "\"sum\"",
+    "\"sample\"",
+    "\"avg\"",
+    "\"min\"",
+    "\"max\"",
     "\"true\"",
     "\"false\"",
-    "\"one\"",
     "\"more\"",
-    "\"merge\"",
-    "\"display\"",
     "\"pragma\"",
-    "\"rdf\"",
-    "\"json\"",
-    "\"flat\"",
-    "\"asquery\"",
-    "\"xml\"",
-    "\"blank\"",
-    "\"threshold\"",
-    "\"result\"",
-    "\"projection\"",
     "\"group\"",
     "\"format\"",
     "\"box\"",
@@ -332,20 +421,13 @@ public interface SparqlCoreseConstants {
     "\"bind\"",
     "\"undef\"",
     "\"count\"",
-    "\"source\"",
     "\"score\"",
     "\"as\"",
-    "\"sort\"",
-    "\"reverse\"",
-    "\"or\"",
-    "\"option\"",
     "\"sorted\"",
     "\"all::\"",
     "\"current::\"",
-    "\"one::\"",
     "\"direct::\"",
     "\"::\"",
-    "\"distance\"",
     "\"debug\"",
     "\"check\"",
     "\"nosort\"",
@@ -366,7 +448,6 @@ public interface SparqlCoreseConstants {
     "\">=:\"",
     "\">:\"",
     "\"~=\"",
-    "<SIMPLE_STRING>",
     "<INTEGER>",
     "<DECIMAL>",
     "<DOUBLE>",
@@ -409,6 +490,7 @@ public interface SparqlCoreseConstants {
     "\"|\"",
     "\"^^\"",
     "\"@\"",
+    "<VAR3>",
     "<NCCHAR1p>",
     "<NCCHAR1>",
     "<NCCHAR>",

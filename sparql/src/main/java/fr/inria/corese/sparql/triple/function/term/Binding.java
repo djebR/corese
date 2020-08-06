@@ -33,6 +33,7 @@ public class Binding implements Binder {
     static final String NL = System.getProperty("line.separator");
     static final int UNBOUND = ExprType.UNBOUND;
     public static boolean DEBUG_DEFAULT = false;
+    public static boolean DYNAMIC_CAPTURE_DEFAULT = false;
 
     ArrayList<Expr> varList;
     ArrayList<IDatatype> valList;
@@ -50,14 +51,16 @@ public class Binding implements Binder {
     private boolean debug = DEBUG_DEFAULT;
 
     private static Logger logger = LoggerFactory.getLogger(Binding.class);
+    private boolean dynamicCapture = DYNAMIC_CAPTURE_DEFAULT;
     private boolean result;
+    private boolean coalesce = false;
 
     Binding() {
         varList = new ArrayList();
         valList = new ArrayList();
         level = new ArrayList();
-        globalValue    = new HashMap<>();
-        globalVariable = new HashMap<>();
+        setGlobalVariableValues(new HashMap<>());
+        setGlobalVariableNames(new HashMap<>());
     }
 
     public static Binding create() {
@@ -107,6 +110,10 @@ public class Binding implements Binder {
     public boolean hasBind() {
         return varList.size() > 0 || level.size() > 0;
     }
+    
+    public boolean isEmpty() {
+        return size() == 0 && getGlobalVariableNames().isEmpty();
+    }
 
     int getIndex(Expr var) {
         return currentLevel + var.getIndex();
@@ -120,16 +127,35 @@ public class Binding implements Binder {
                 allocate(exp);
                 break;
 
-            case ExprType.LET:
+            case ExprType.LET:               
             case ExprType.FOR:
-                if (exp.getNbVariable() > 0) {
-                    allocate(exp);
-                }
+                allocation(exp);
         }
         set(var, val);
-//        if (isDebug()) {
-//            trace(exp, val);
-//        }
+    }
+    
+    // must perform allocation before
+    public void setlet(Expr exp, Expr var, IDatatype val) {
+        set(var, val);
+    }
+    
+    // do it when desallocation return false
+    public void unsetlet(Expr exp, Expr var, IDatatype val) {
+        unset(var);
+    }
+    
+    public void allocation(Expr exp) {
+        if (exp.getNbVariable() > 0) {
+            allocate(exp);
+        }
+    }
+    
+    public boolean desallocation(Expr exp) {
+        if (exp.getNbVariable() > 0) {
+            desallocate(exp);
+            return true;
+        }
+        return false;
     }
 
     public void unset(Expr exp, Expr var, IDatatype val) {
@@ -141,10 +167,13 @@ public class Binding implements Binder {
 
             case ExprType.LET:
             case ExprType.FOR:
-                if (exp.getNbVariable() > 0) {
-                    desallocate(exp);
+                if (desallocation(exp)) {
                     return;
                 }
+//                if (exp.getNbVariable() > 0) {
+//                    desallocate(exp);
+//                    return;
+//                }
             // else continue
 
             default:
@@ -184,13 +213,6 @@ public class Binding implements Binder {
     public void unset(Function exp) {
         desallocate(exp);
     }
-    
-    
-//    public void set(Function exp, Expr var, IDatatype val) {
-//        allocate(exp);
-//        set(var, val);
-//    }
-//
     
     /**
      * Level of current function call in the stack Also level of filter for/let
@@ -282,9 +304,22 @@ public class Binding implements Binder {
     public IDatatype get(Expr var) {
         switch (var.getIndex()) {
             case UNBOUND: {
-                IDatatype dt = globalValue.get(var.getLabel());
-                if (dt == null && isDebug()) {
-                    logger.warn("Variable unbound: " + var);
+                if (isDynamicCapture()) {
+                    for (int i = varList.size() - 1; i >= 0; i--) {
+                        Expr vv = varList.get(i);
+                        if (vv != null && vv.isDynamic() && vv.equals(var)) {
+                            return valList.get(i);
+                        }
+                    }
+                }
+                
+                IDatatype dt = getGlobalVariableValues().get(var.getLabel());
+                if (dt == null) {
+
+                    if (isDebug()) {
+                        logger.warn("Variable unbound: " + var);
+                        System.out.println(this);
+                    }
                 }
                 return dt;
             }
@@ -365,6 +400,17 @@ public class Binding implements Binder {
             default:
                 switch (var.getIndex()) {
                     case UNBOUND:
+                        
+                        if (isDynamicCapture()) {
+                            for (int i = varList.size() - 1; i >= 0; i--) {
+                                Expr vv = varList.get(i);
+                                if (vv != null && vv.isDynamic() && vv.equals(var)) {
+                                     valList.set(i, val);
+                                     return;
+                                }
+                            }
+                        }
+                        
                         define((Variable) var, val);
                         break;
                     default:
@@ -374,8 +420,8 @@ public class Binding implements Binder {
     }
     
     void define(Variable var, IDatatype val) {
-        globalValue.put(var.getLabel(), val);
-        globalVariable.put(var.getLabel(), var);
+        getGlobalVariableValues().put(var.getLabel(), val);
+        getGlobalVariableNames().put(var.getLabel(), var);
     }
 
     @Override
@@ -404,7 +450,7 @@ public class Binding implements Binder {
                 list.add(varList.get(i));
             }
         }
-        for (Variable var : globalVariable.values()) {
+        for (Variable var : getGlobalVariableNames().values()) {
             if (! list.contains(var)) {
                 list.add(var);
             }
@@ -516,6 +562,34 @@ public class Binding implements Binder {
     @Override
     public void setVisitor(ProcessVisitor visitor) {
         this.visitor = visitor;
+    }
+
+    /**
+     * @return the dynamicCapture
+     */
+    public boolean isDynamicCapture() {
+        return dynamicCapture;
+    }
+
+    /**
+     * @param dynamicCapture the dynamicCapture to set
+     */
+    public void setDynamicCapture(boolean dynamicCapture) {
+        this.dynamicCapture = dynamicCapture;
+    }
+
+    /**
+     * @return the coalesce
+     */
+    public boolean isCoalesce() {
+        return coalesce;
+    }
+
+    /**
+     * @param coalesce the coalesce to set
+     */
+    public void setCoalesce(boolean coalesce) {
+        this.coalesce = coalesce;
     }
     
 }

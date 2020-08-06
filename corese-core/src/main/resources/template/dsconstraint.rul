@@ -2,75 +2,10 @@
 <!--
 SPARQL Template Transformation
 Olivier Corby - Wimmics - Inria UNS CNRS I3S
-Sat Mar 30 00:03:40 CET 2019
+Thu Jul 25 11:55:24 CEST 2019
 -->
 <rdf:RDF  xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
   xmlns='http://ns.inria.fr/sparql-template/'>
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:disjoint (?shape, ?sh, ?vis, ?s, ?p){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (sh:path(?shape, ?s, ?p) as ?l)
-  
-  bind (! xt:member(?s, ?l) as ?suc) 
-  
-  bind (st:report(sh:disjoint, ?sh, ?shape, ?s, ?p, ?s, ?suc, ?vis) as ?b)
-  
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:equals1 (?shape, ?sh, ?vis, ?s, ?p){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (sh:path(?shape, ?s, ?p) as ?l)
-
-  bind (xt:member(?s, ?l) as ?suc) 
-  
-  bind (st:report(sh:equals, ?sh, ?shape, ?s, ?p, ?s, ?suc, ?vis) as ?b)
-  
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:equals2 (?shape, ?sh, ?vis, ?s, ?p){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (sh:path(?shape, ?s, ?p) as ?l)
-  
-  values ?m { unnest(?l) }
-  
-  bind (?s = ?m as ?suc)
-  
-  bind (st:report(sh:equals, ?sh, ?shape, ?s, ?p, ?m, ?suc, ?vis) as ?b)
-  
-}
-]]>
-</body>
-</rule>
-
 <rule>
 <body>
 <![CDATA[
@@ -101,41 +36,6 @@ where {
 <rule>
 <body>
 <![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:equals (?shape, ?sh, ?vis, ?s, ?p){
-     st:call-template(?oper, ?shape, ?sh, ?vis, ?s, ?p)
-}
-where {
-
-  values ?oper {sh:equals1 sh:equals2}
-
-}
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template sh:class (?shape, ?sh, ?vis, ?s, ?c){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-
-  bind (exists { ?s rdf:type/rdfs:subClassOf* ?c } as ?suc)
-  bind (st:report(sh:class, ?sh, ?shape,  ?s, rdf:type, ?s, ?suc, ?vis) as ?b)
-}
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
 #
 # SPARQL Based Constraint
 # Evaluate SPARQL query with pre-bind of variable $this with focus nodes
@@ -150,6 +50,7 @@ where {
         ?sh sh:sparql ?cst 
         ?cst sh:select ?q
         filter not exists { ?cst sh:deactivated true }
+        optional { ?cst sh:message ?mes }
         
         # collect prefix definitions
         # TBD: do it once and record it
@@ -158,22 +59,15 @@ where {
               (group_concat(concat("prefix ", ?pr, ": <", str(?ns), ">") ;  separator="\n") 
               as ?define) 
             where {
-                ?cst sh:prefixes ?ns
-                [] sh:declare [ sh:prefix ?pr ; sh:namespace ?ns ] 
+                ?cst sh:prefixes/owl:imports*/sh:declare [ sh:prefix ?pr ; sh:namespace ?ns ] 
             }
             group by ?cst
         }
     }
     
-    values ($this ?path ?value) { unnest(kg:sparql(concat(?define, ?q), "$this", ?s)) }
-
-    # SPARQL query returns solutions that fail
-    bind (false as ?suc)
-    
-    bind (st:report(sh:sparql, ?cst, ?shape, ?s, ?path, ?value, ?suc, ?vis) as ?b)
+    bind (sh:mysparql(concat(?define, ?q), ?sh, ?cst, ?shape, ?s, ?s, ?vis, coalesce(?mes, st:null), bound(?mes)) as ?suc)
     
 }
-
 
 ]]>
 </body>
@@ -184,48 +78,73 @@ where {
 <![CDATA[
 prefix sh: <http://www.w3.org/ns/shacl#> 
 
-template sh:datatype (?shape, ?sh, ?vis, ?s, ?d){
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-  
-  bind (sh:datatype(?s, ?d)  as ?suc)
-  
-  bind (st:report(sh:datatype, ?sh, ?shape, ?s, st:null, ?s, ?suc, ?vis) as ?b)
-}
-]]>
-</body>
-</rule>
 
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
+@import <function/datashape/main.rq> <function/datashape/ppath.rq> <function/datashape/operator.rq> <function/datashape/constraint.rq> 
+
 
 template st:profile {}
 where {}
 
-function st:aggregate(?out) {
-  st:agg_and(?out)
+function st:aggregate(out) {
+  st:agg_and(out)
 }
 
-function st:default(?term){
+function st:default(term){
     true
 }
 
-function st:defaultNamed(?term){
+function st:defaultNamed(term){
     true
 }
 
-function st:optimize(?shape, ?sh){
+function st:optimize(shape, sh){
     true
 }
 
+]]>
+</body>
+</rule>
+
+<rule>
+<body>
+<![CDATA[
+prefix sh: <http://www.w3.org/ns/shacl#> 
+
+template (?shape, ?sh, ?vis, ?ls) {
+    funcall(?q, ?shape, ?sh, ?vis, ?s, ?m)
+}
+where {
+  values (?shape ?sh) { (UNDEF UNDEF) }
+  
+  values (?q ?m) { unnest(sh:getConstraint(sh:cstgeneric3, ?shape, ?sh)) }
+  
+  values ?s { unnest(?ls) }
+}
 
 
+]]>
+</body>
+</rule>
 
+<rule>
+<body>
+<![CDATA[
+prefix sh: <http://www.w3.org/ns/shacl#> 
 
-
+template (?shape, ?sh, ?vis, ?ls) {
+  sh:safe(?shape, ?sh, ?suc)
+}
+where {
+  values (?shape ?sh) { (UNDEF UNDEF) }
+  
+  values (?q ?m) { unnest(sh:getConstraint(sh:cstgeneric, ?shape, ?sh)) }  
+  
+  values ?s { unnest(?ls) }
+    
+  bind (coalesce(if (?q = sh:functioncst,  funcall(?m, ?shape, ?sh, ?s), funcall(?q, ?shape, ?s, ?m)), false) as ?suc )
+  
+  bind (st:report(?q, ?sh, if (?q = sh:node, ?m, st:null), ?shape, ?s, st:null, ?s, ?suc, ?vis) as ?b)
+}
 
 ]]>
 </body>
@@ -240,43 +159,13 @@ template (?shape, ?sh, ?vis, ?ls) {
     st:call-template(?q, ?shape, ?sh, ?vis, ?s, ?m)
 }
 where {
-  graph ?shape {  
-    values ?q { sh:class sh:pattern sh:disjoint sh:equals sh:sparql }
-    ?sh ?q ?m            
-  }
+  values (?shape ?sh) { (UNDEF UNDEF) }
+  
+  values (?q ?m) { unnest(sh:getConstraint(sh:cstgeneric2, ?shape, ?sh)) } 
   
   values ?s { unnest(?ls) }
 }
 
-
-]]>
-</body>
-</rule>
-
-<rule>
-<body>
-<![CDATA[
-prefix sh: <http://www.w3.org/ns/shacl#> 
-
-template (?shape, ?sh, ?vis, ?ls) {
-  sh:safe(?shape, ?sh, ?suc)
-}
-where {
-  graph ?shape {  
-    values ?q { 
-        sh:hasValue sh:datatype sh:minInclusive sh:minExclusive sh:maxInclusive sh:maxExclusive sh:minLength sh:maxLength sh:nodeKind sh:node sh:in sh:languageIn 
-    }
-    ?sh ?q ?m 
-    #filter not exists { ?sh sh:path ?p }
- 
-  }
-  
-  values ?s { unnest(?ls) }
-    
-  bind (coalesce(sh:functioncall(?q, ?shape, ?s, ?m), false) as ?suc )
-  
-  bind (st:report(?q, ?sh, ?shape, ?s, st:null, ?s, ?suc, ?vis) as ?b)
-}
 
 ]]>
 </body>

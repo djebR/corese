@@ -6,6 +6,7 @@
 
 package fr.inria.corese.sparql.triple.function.extension;
 
+import static fr.inria.corese.kgram.api.core.PointerType.EXPRESSION;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Producer;
@@ -32,18 +33,22 @@ public class Rest extends TermEval {
 
     @Override
     public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
-        IDatatype dt     = getBasicArg(0).eval(eval, b, env, p);
-        IDatatype index  = getBasicArg(1).eval(eval, b, env, p);
+        IDatatype dt    = getBasicArg(0).eval(eval, b, env, p);
+        IDatatype index = getBasicArg(1).eval(eval, b, env, p);
+        if (dt == null || index == null) {
+            return null;
+        }
         IDatatype last   = null;
         if (arity()>2) {
            last   = getBasicArg(2).eval(eval, b, env, p); 
         }
+        return rest(dt, index, last);
         
-        if (dt == null || index == null) {
-            return null;
-        }
-        
-        if (dt.isMap() || dt.pointerType() == Pointerable.EXPRESSION_POINTER) {
+    }
+    
+    public static IDatatype rest(IDatatype dt, IDatatype index, IDatatype last){        
+      
+        if (dt.isMap() || dt.pointerType() == EXPRESSION) {
             dt = dt.toList();
         }
         if (dt.isList()) {
@@ -65,7 +70,7 @@ public class Rest extends TermEval {
         return null;
     }
     
-    IDatatype rest(IDatatype dt, IDatatype index) {       
+    static IDatatype rest(IDatatype dt, IDatatype index) {       
         Pointerable res = dt.getPointerObject(); 
         ArrayList<IDatatype> list = new ArrayList<>();
         int i = 0;

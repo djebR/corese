@@ -4,12 +4,14 @@ import fr.inria.corese.core.edge.*;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.core.logic.Entailment;
+import fr.inria.corese.core.producer.DataFilter;
 import fr.inria.corese.core.query.QueryProcess;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.util.List;
 import fr.inria.corese.kgram.api.core.Edge;
+import java.util.ArrayList;
 
 /*
  * Factory creates Edges
@@ -87,19 +89,25 @@ public class EdgeFactory {
         if (ent.nbNode() > 2) {
             return ent;
         }
+        Edge edge = ent;
         switch (ent.getGraph().getIndex()){
             // rule edge must store an index
             case Graph.RULE_INDEX: return ent;
             
             case Graph.ENTAIL_INDEX:
-                return EdgeInternalEntail.create(ent.getGraph(), ent.getNode(0), ent.getEdgeNode(), ent.getNode(1));
+                edge = EdgeInternalEntail.create(ent);
+                break;
                 
             case Graph.DEFAULT_INDEX:
-                return EdgeInternalDefault.create(ent.getGraph(), ent.getNode(0), ent.getEdgeNode(), ent.getNode(1));
+                edge = EdgeInternalDefault.create(ent);
+                break;
 
             default: 
-                return EdgeInternal.create(ent.getGraph(), ent.getNode(0), ent.getEdgeNode(), ent.getNode(1));
+                edge =  EdgeInternal.create(ent);
+                break;
         }
+        edge.setLevel(ent.getLevel());
+        return edge;
     }
        
     public EdgeTop createDuplicate(Edge ent) {
@@ -119,7 +127,9 @@ public class EdgeFactory {
     public Edge compact(Edge ent){
         switch (ent.getGraph().getIndex()){
             case Graph.RULE_INDEX: 
-                return EdgeInternalRule.create(ent.getNode(0), ent.getNode(1));
+                Edge edge = EdgeInternalRule.create(ent.getNode(0), ent.getNode(1));
+                edge.setLevel(ent.getLevel());
+                return edge;
             default: return ent;
         }
     }
@@ -209,15 +219,43 @@ public class EdgeFactory {
         return ee;
     }
     
+    public Edge create(Node source, Node subject, Node predicate, Node object, Node node) {
+        ArrayList<Node> list = new ArrayList<>();
+        list.add(subject);list.add(object); list.add(node);
+        return create(source,  predicate, list);
+   }
+    
+    public Edge name(Edge edge) {
+        return name(edge, graph.addTripleName());
+    }
+    
+    public Edge name(Edge edge, Node name) {
+        if (edge.nbNode() == 3) {
+            edge.setNode(2, name);
+            return edge;
+        }
+        return name(edge, edge.getEdgeNode(), name);
+    }
+    
+     public Edge name(Edge edge, Node predicate, Node name) {
+        if (edge.nbNode() == 3) {
+            edge.setNode(2, name);
+            return edge;
+        }
+        return create(edge.getGraph(), edge.getNode(0), predicate, edge.getNode(1), name);
+    }
+    
     public Edge copy(Node node, Node pred, Edge ent) {
+        Edge edge;
         if (ent instanceof EdgeImpl) {
-            EdgeImpl ee = ((EdgeImpl)ent).copy();
-            ee.setGraph(node);
-            return ee;
+            edge = ((EdgeImpl)ent).copy();
+            edge.setGraph(node);
         }  
         else {
-            return create(node, ent.getNode(0), pred,  ent.getNode(1));
+            edge = create(node, ent.getNode(0), pred,  ent.getNode(1));
         }
+        edge.setLevel(ent.getLevel());
+        return edge;
     }
     
     public Edge copy(Edge ent){
@@ -236,10 +274,11 @@ public class EdgeFactory {
      * Piece of code specific to EdgeImpl
      */
     public void setGraph(Edge ent, Node g) {
-        if (ent instanceof EdgeTop) {
-            EdgeTop e = (EdgeTop) ent;
-            e.setGraph(g);
-        }
+        ent.setGraph(g);
+//        if (ent instanceof EdgeTop) {
+//            EdgeTop e = (EdgeTop) ent;
+//            e.setGraph(g);
+//        }
  
     }
     

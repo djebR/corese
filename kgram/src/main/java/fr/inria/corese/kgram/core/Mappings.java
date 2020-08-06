@@ -10,7 +10,6 @@ import java.util.List;
 import fr.inria.corese.kgram.api.core.Filter;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.core.TripleStore;
-import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Evaluator;
 import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.kgram.event.Event;
@@ -18,6 +17,8 @@ import fr.inria.corese.kgram.event.EventImpl;
 import fr.inria.corese.kgram.event.EventManager;
 import java.util.HashMap;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.MAPPINGS;
 import fr.inria.corese.kgram.api.query.Binder;
 import java.util.Map;
 
@@ -32,7 +33,8 @@ import java.util.Map;
 public class Mappings extends PointerObject
         implements Comparator<Mapping>, Iterable<Mapping> {
  
-    private static final String NL = System.getProperty("line.separator");    
+    private static final String NL = System.getProperty("line.separator");
+    private static final String AGGREGATE_LOCAL = "@local";
     private static final long serialVersionUID = 1L;
     private static int SELECT = -1;
     private static int HAVING = -2;
@@ -397,6 +399,7 @@ public class Mappings extends PointerObject
     }
 
     @Override
+    // PRAGMA: Do **not** take var into account
     public Object getValue(String var, int n) {
         if (n >= size()) return null;
         return get(n);
@@ -643,12 +646,12 @@ public class Mappings extends PointerObject
     }
     
     
-    int comparator2(Node n1, Node n2) {       
-        if (getEval() != null) {
-            return getEval().compare(n1, n2);
-        }
-        return n1.compare(n2);
-    }
+//    int comparator2(Node n1, Node n2) {       
+//        if (getEval() != null) {
+//            return getEval().compare(n1, n2);
+//        }
+//        return n1.compare(n2);
+//    }
 
     @Override
     public int compare(Mapping m1, Mapping m2) {
@@ -775,7 +778,10 @@ public class Mappings extends PointerObject
 
     void finish(Query qq) {
         setNbsolutions(size());
-        if (qq.hasGroupBy() && !qq.isConstruct()) {
+        if (qq.getAST().hasMetadata(AGGREGATE_LOCAL)) {
+            // keep results as is
+        }
+        else if (qq.hasGroupBy() && !qq.isConstruct()) {
             // after group by (and aggregate), leave one Mapping for each group
             // with result of the group
             groupBy();
@@ -1262,7 +1268,7 @@ public class Mappings extends PointerObject
     }
 
     public Mappings join(Mappings lm) {
-        Mappings res = new Mappings();
+        Mappings res =  Mappings.create(getQuery());
         for (Mapping m1 : this) {
             for (Mapping m2 : lm) {
                 Mapping map = m1.join(m2);
@@ -1595,8 +1601,8 @@ public class Mappings extends PointerObject
     }
 
     @Override
-    public int pointerType() {
-        return MAPPINGS_POINTER;
+    public PointerType pointerType() {
+        return MAPPINGS;
     }
 
     @Override
@@ -1641,6 +1647,16 @@ public class Mappings extends PointerObject
      */
     public List<Node> getNodeList() {
         return nodeList;
+    }
+    
+    /**
+     * Generate nodeList for values clause for this Mappings
+     */
+    public List<Node> getNodeListValues() {
+        if (isEmpty()) {
+            return new ArrayList<>();
+        }
+        return get(0).getQueryNodeList();
     }
 
     /**
@@ -1704,6 +1720,12 @@ public class Mappings extends PointerObject
      */
     public void setProvenance(Object provenance) {
         this.provenance = provenance;
+    }
+    
+    void setNamedGraph(Node node) {
+        for (Mapping m : this) {
+            m.setNamedGraph(node);
+        }
     }
 
   

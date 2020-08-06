@@ -1,7 +1,7 @@
 package fr.inria.corese.sparql.datatype;
 
 public interface RDF {
-
+    
 	 static final String XML   =  "http://www.w3.org/XML/1998/namespace";
 	 static final String RDF   =  "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 	 static final String RDFS  =  "http://www.w3.org/2000/01/rdf-schema#";
@@ -15,23 +15,25 @@ public interface RDF {
 	 static final String XMLPrefix =  "xml";
 	 static final String OWLPrefix =  "owl";
 	 
-	static final String RDFSRESOURCE 	= RDFS+"Resource";
+	static final String RDFSRESOURCE= RDFS+"Resource";
 	static final String RDFSLITERAL 	= RDFS+"Literal";
 	static final String XMLLITERAL  	= RDF+"XMLLiteral";
-	static final String BLANKSEED   	= "_:";
+	static final String HTML  	= RDF+"HTML";
+	static final String LANGSTRING  = RDF+"langString";
+	static final String BLANKSEED   = "_:";
 	
 	static final String qxsdString 	 = "xsd:string";
 	static final String qxsdInteger  = "xsd:integer";
 	static final String qxsdBoolean  = "xsd:boolean";
-	static final String qxsdlangString 	 = "rdf:langString";
+	static final String qxsdlangString= "rdf:langString";
 	static final String qrdfsLiteral = "rdfs:Literal";
 
 	static final String xsdboolean 	= XSD+"boolean";
 	static final String xsdinteger 	= XSD+"integer";
 	static final String xsdlong 	= XSD+"long";
-	static final String xsdint 		= XSD+"int";
+	static final String xsdint 	= XSD+"int";
 	static final String xsdshort 	= XSD+"short";
-	static final String xsdbyte		= XSD+"byte";
+	static final String xsdbyte	= XSD+"byte";
 	static final String xsddecimal 	= XSD+"decimal";
 	static final String xsdfloat 	= XSD+"float";
 	static final String xsddouble 	= XSD+"double";

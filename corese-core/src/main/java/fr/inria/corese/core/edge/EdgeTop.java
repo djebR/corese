@@ -2,11 +2,13 @@ package fr.inria.corese.core.edge;
 
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.core.TripleStore;
 import fr.inria.corese.core.GraphObject;
 import java.util.ArrayList;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.kgram.api.core.PointerType;
+import static fr.inria.corese.kgram.api.core.PointerType.TRIPLE;
+import fr.inria.corese.sparql.triple.parser.AccessRight;
 
 /**
  *
@@ -14,6 +16,7 @@ import fr.inria.corese.kgram.api.core.Edge;
  *
  */
 public abstract class EdgeTop extends GraphObject implements Edge {
+    private byte level = AccessRight.DEFAULT;
 
     public Edge copy() {
         return create(getGraph(), getNode(0), getEdgeNode(), getNode(1));
@@ -21,6 +24,24 @@ public abstract class EdgeTop extends GraphObject implements Edge {
 
     public static Edge create(Node source, Node subject, Node predicate, Node objet) {
         return null;
+    }
+    
+       // manage access right
+    @Override
+    public byte getLevel() {
+        //return -1;
+        return level;
+    }
+
+    @Override
+    public Edge setLevel(byte b) {
+        level = b;
+        return this;
+    }
+    
+    public Edge setLevel(int b) {
+        level = (byte)b;
+        return this;
     }
     
     @Override
@@ -93,8 +114,8 @@ public abstract class EdgeTop extends GraphObject implements Edge {
     }
 
     @Override
-    public int pointerType() {
-        return Pointerable.EDGE_POINTER;
+    public PointerType pointerType() {
+        return TRIPLE;
     }
 
     @Override

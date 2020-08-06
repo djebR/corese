@@ -58,6 +58,7 @@ PARSER_BEGIN(SparqlCorese)
     ASTTemplate astt;
     Basic prolog;
     Creator create;
+    ParserHandler handler;
     
     /** should we say to the user when he uses something deprecated? (option, sort, or, source, as...) */
     boolean printDeprecated = true;
@@ -72,19 +73,22 @@ PARSER_BEGIN(SparqlCorese)
     boolean debug2 = show && false;
     static final String THIS = "?this";
 
-    static final String SQ1 = "\"";
-    static final String SQ3 = "\"\"\"";
-    static final String SSQ = "'";
-    static final String SSQ3 = "'''";
-
 	public void setASTQuery(ASTQuery aq) {
 		astq = aq;
 		gast = aq;
 	}
 	
 	public void set(Creator c){
-	   create = c;
+	    create = c;
+            if (handler != null) {
+                handler.setCreator(c);
+            }
 	}
+
+        public void setHandler(ParserHandler h) {
+            handler = h;
+            handler.setParser(this);
+        }
 	
 	/**
 	* @param s1 = the string deprecated
@@ -105,8 +109,6 @@ PARSER_BEGIN(SparqlCorese)
         Exp ex;
         astu = ASTUpdate.create();
         try {
-            //if (astq.isRule()) ex = Rule();
-        	//else 
         	ex = Start();
         } catch(ParseException e) {
         	throw new JavaccParseException(e);
@@ -129,68 +131,12 @@ PARSER_BEGIN(SparqlCorese)
          catch(ParseException e) {
         	throw new JavaccParseException(e);
         }
-    }  
-    
-    Exp createTriples(Exp stack, Expression e1, Atom p, ExpressionList list, int n) 
-    throws ParseException {
-        for (Expression e2 : list) {
-            Exp e = createTriple(e1, p, e2);
-            if (e != null){
-                stack.add(n++, e);
-            }      
-	}
-        return stack;
     }
 
-     Triple createTriple(Expression s, Atom p, Expression o) throws ParseException {
- 	    if (create != null){
- 	    	if (! create.accept(s.getAtom(), p, o.getAtom())){
- 	   	 		throw generateParseException();
- 	   	 	}
- 	    	create.triple(s.getAtom(), p, o.getAtom());
- 	    	return null;
- 	    }
- 	    else {
- 	    	return astq.createTriple(s, p, o);
- 	    }
-     }
-    
-   Triple createTriple(Atom p, List<Atom> list){
-   		if (create != null){
-	    	create.triple(p, list);
-	    	return null;
-	    }
-	    else {
-			Triple t = astq.createTriple(p, list);
-   	   		return t;	    
-   	   	}
-   }
-    
-    void graphPattern(Atom g){
-       if (create != null){
-           create.graph(g.getConstant());
-       }
-    }
-    
-    void endGraphPattern(Atom g){
-       if (create != null){
-           create.endGraph(g.getConstant());
-       }
-    }
-    
-    Expression list(Exp stack, List<Expression> l, int arobase){
-       RDFList rlist = astq.createRDFList(l, arobase);
-    
-       if (create != null){
-           create.list(rlist);
-       }
-       else {
-           stack.add(rlist);
-       }
-       
-       return rlist.head();
-    }
-    
+    boolean isLoad() {
+        return create != null;
+    } 
+                 
     void defNamespace(String p, String ns){
     	astq.defNamespace(p, ns);
     	astu.defNamespace(p, ns);
@@ -200,75 +146,21 @@ PARSER_BEGIN(SparqlCorese)
     	astq.defBase(s);
     	astu.defBase(s);
     }
-    
-    
-    
-        /**
-	 * Replace escape char by target char
-	 * 
-	 */
-	String remEscapes(String str){
-		StringBuilder retval = new StringBuilder();
 
-                // remove leading/trailing " or '
-                int start = 1, end = str.length() - 1;
-		
-                if ((str.startsWith(SQ3)  && str.endsWith(SQ3)) ||
-		    (str.startsWith(SSQ3) && str.endsWith(SSQ3))){
-                    // remove leading/trailing """ or '''
-                    start = 3;
-                    end = str.length() - 3;
-                }
-
-		for (int i = start; i < end; i++) {
-			
-                    if (str.charAt(i) == '\\' && i+1 < str.length()){
-                             i += 1;       	
-                             switch (str.charAt(i)){
-
-                              case 'b':
-                                   retval.append('\b');
-                                   continue;
-                                case 't':
-                                   retval.append('\t');
-                                   continue;
-                                case 'n':
-                                   retval.append('\n');
-                                   continue;
-                                case 'f':
-                                   retval.append('\f');
-                                   continue;
-                                case 'r':
-                                   retval.append('\r');
-                                   continue;
-                                case '"':
-                                   retval.append('\"');
-                                   continue;
-                                case '\'':
-                                   retval.append('\'');
-                                   continue;
-                                case '\\':
-                                   retval.append('\\');
-                                   continue;
-                             }
-
-                     }
-                     else {
-                             retval.append(str.charAt(i));
-                     }
-		}
-		
-		return retval.toString();
-	}
-    
-    
+    Metadata metadata(Metadata global, Metadata local) {
+        if (local == null) {
+            return global;
+        }
+        else {
+            local.setMetadata(global);
+            return local;
+        }
+    }
+  
     
 }  
   
-  
-  
-  
-  
+ 
 PARSER_END(SparqlCorese)
 
 
@@ -290,7 +182,7 @@ Exp Rule(): { Exp stack; }
   	{ return stack; }
 }
 
-Exp Query() : { Exp stack; Metadata la = null;}
+Exp Query() : { Exp stack; Metadata global=null, la = null;}
 {
 
 	{stack = BasicGraphPattern.create();}
@@ -306,7 +198,7 @@ Exp Query() : { Exp stack; Metadata la = null;}
             | stack = TemplateQuery(la)
             )  (Defun()) 
         |  
-            ( Function(la) | Package(la) ) Defun()
+            ( Function(global, la) | Package(la) ) Defun()
         )
   	     	
   ) ?
@@ -314,9 +206,9 @@ Exp Query() : { Exp stack; Metadata la = null;}
   { return stack; }
 }
 
-void Defun() : { Metadata la = null;} {
+void Defun() : { Metadata global = null, la = null;} {
     ( 
-        la = Annotate() (Function(la) | Package(la)) 
+        la = Annotate() (Function(global, la) | Package(la)) 
     ) *
 }
 
@@ -494,7 +386,7 @@ void DeleteInsertData() : {Exp exp; Composite ope, upd;}
 			{ope = Composite.create(Update.DELETE, exp);}
 			
 			|
-			<WHERE>    exp = QuadPattern()
+			<WHERE>  { handler.enterWhere(); }  exp = QuadPattern() { handler.leaveWhere(); }
 			
 			{
 				upd = Composite.create(Update.COMPOSITE); upd.setBody(exp); 
@@ -553,7 +445,7 @@ void DeleteInsertWhere() : {Exp exp; Composite upd, ope; Constant uri; Values va
 	          ) 
 	) *
 	
-	<WHERE> exp = GroupGraphPattern()
+	<WHERE> { handler.enterWhere(); } exp = GroupGraphPattern() { handler.leaveWhere(); }
 
         (values = Values() {upd.setValues(values); } ) ?
 	
@@ -757,7 +649,6 @@ Expression XML(Exp stack) :
 {
 
    <AT> uri = IRIrefConst()      
- //  <AT> (t = <SIMPLE_STRING> | t = <QNAME>)  {uri = astq.createConstant(t.image);}
 
 { list = new ExpressionList(); }
 
@@ -805,7 +696,6 @@ Exp SelectQuery(Metadata la) : { Exp stack; }
     (<NOSORT> {astq.setSorted(false); } )?
     OneMoreListMerge()
     GroupCountSortDisplayVar()
-    Max()
     ( DatasetClause() )*
   stack = WhereClause()
   SolutionModifier()  
@@ -855,7 +745,7 @@ Exp ConstructQuery(Metadata la) : { Exp stack1, stack2; boolean isRule = false;}
   (
   // without a construct pattern
   ( DatasetClause() )*
-  <WHERE> stack2 =  ConstructTemplate2()
+  <WHERE> { handler.enterWhere(); } stack2 =  ConstructTemplate2() { handler.leaveWhere(); }
   SolutionModifier()
   
   {	astq.duplicateConstruct(stack2); 
@@ -923,18 +813,14 @@ Exp DeleteQuery() : { Exp stack; }
 // ----
 
 // one more list merge in any order and without list and merge being together
+
 void OneMoreListMerge(): {}
 {
-  One() ( More() ( List() | Merge() )? | List() ( More() )? | Merge() ( More() )? )?
-  | More() ( One() ( List() | Merge() )? | List() ( One() )? | Merge() ( One() )? )?
-  | ( ( List() | Merge() ) ( One() ( More() )? | More() ( One() )? )? )?
+  (More()) ? 
 }
 
-void One(): {}
-{
-  <ONE>
-  { astq.setOne(true); }
-}
+
+
 
 void More(): {}
 {
@@ -942,30 +828,15 @@ void More(): {}
   { astq.setMore(true); }
 }
 
-void List(): {}
-{
-  <LIST>
-  { astq.setList(true); }
-}
-
-void Merge(): {}
-{
-  <MERGE>
-  { 
-  //astq.setMerge(true); 
-  }
-}
 
 void GroupCountSortDisplayVar(): {}
 {
-  GroupCountSortDisplay() 
   ( 
   	(<DISTINCT> { astq.setDistinct(true);  } | <REDUCED> { astq.setReduced(true);  } ) 
   	( <SORTED> { astq.setStrictDistinct(false); } )?
   )? 
   ( 
   	SelectVar() 
-  	GroupCountSortDisplay() 
   )?
 }
 
@@ -1028,97 +899,6 @@ void FunVar(Exp stack): { Expression e2; Variable e1; Variable var;} {
 // ********************* END SPARQL 1.1
 
 
-void GroupCountSortDisplay(): {}
-{
-  ( LOOKAHEAD(2) (
-    Group()
-    //| Count()
-    | Sort() 
-    | Display() 
-  ) )*  
-}
-
-void Group(): { Atom var; }
-{
-  <GROUP> (<BY>)?
-  var = Var()
-  { 
-  //astq.setGroup(var.getName()); 
-  }
-}
-
-void Count(): { Atom var; }
-{
-  <COUNT> var = Var()
-  { astq.setCount(var.getName()); }
-}
-
-void Sort(): { boolean reverse; Token t; Variable v; String sortby; Expression a; Term tm; Exp stack; }
-{
-  { reverse = false; stack = new And(); deprecated("sort", "order by"); }
-  <SORT> 
-  (
-  	(<REVERSE> { reverse = true; } )? 
-  	( 
-  	  v = Var() { astq.setSort(v, reverse); }
-  	  | a = BuiltInCall(stack) { astq.setSort(a, reverse); }
-  	  | a = BrackettedExpression(stack) { astq.setSort(a, reverse); }
-  	  | tm = FunctionCall(stack) { astq.setSort(tm, reverse); }
-  	  | LOOKAHEAD(2) tm = FunctionCorese(stack) { astq.setSort(tm, reverse); }
-	  | t = <COUNT> { sortby = t.image.toLowerCase(); astq.setSort(sortby, reverse); }
-  	  | t = <DISTANCE> { sortby = t.image.toLowerCase(); astq.setSort(sortby, reverse); }       
-	)
-  )  
-}
-
-void Display(): { Token t; }
-{
-  <DISPLAY> ( 
-  			  <D_RDF>  { astq.setRDF(true); }
-  			| <D_JSON> { astq.setJSON(true); }  
-  			//| <D_FLAT> { astq.setFlat(true); }
-  			//| <D_ASQUERY> { astq.setPQuery(true); }
-  			| ( t = <INTEGER> { astq.setMaxDisplay(Integer.parseInt(t.image)); } 
-  			  )	
-  			| <D_XML> { astq.setXMLBind(true); }
-  			| <D_BLANK> { astq.setDisplayBNID(true); } 
-  			)
-}
-
-void Max(): {}
-{
-  Projection() ( ( Result() ( Threshold() )? ) | ( Threshold() ( Result() )? ) )?
-  | Result() ( ( Projection() ( Threshold() )? ) | ( Threshold() ( Projection() )? ) )? 
-  | ( Threshold() ( ( Projection() ( Result() )? ) | ( Result() ( Projection() )? ) )? )?
-}
-
-void Projection(): { Token t; }
-{
-  <PROJECTION> 
-  ( t = <INTEGER>
-  { astq.setMaxProjection(Integer.parseInt(t.image)); }
-  )
-}
-
-void Result(): { Token t; }
-{
-  <RESULT> 
-  ( t = <INTEGER>
-  { astq.setMaxResult(Integer.parseInt(t.image)); }
-  )
-}
-
-void Threshold(): { Token t; }
-{
-  <THRESHOLD> 
-  ( t = <INTEGER>
-  { astq.setThreshold(Float.parseFloat(t.image)); }
-   )
-}
-
-
-
-// ----
 
 void DatasetClause() : { Constant s; }
 {
@@ -1132,8 +912,7 @@ void DatasetClause() : { Constant s; }
 Exp WhereClause() : { Exp stack; }
 {
    (<WHERE> { astq.setWhere(true); } )? 
-   //{ stack = BasicGraphPattern.create(); }
-   stack = GroupGraphPattern()
+   { handler.enterWhere(); } stack = GroupGraphPattern() { handler.leaveWhere(); }
    { return stack; }
 }
 
@@ -1142,7 +921,6 @@ void SolutionModifier() : {Values values;}
    (Relax()) ?  
    (OrderGroup()) ? ( LimitOffset()) ? 
    (values = Values() {astq.setValues(values); } ) ?
-   (Display()) * 
    (Pragma()) *
 }
 
@@ -1168,7 +946,7 @@ Values Values() : {
 			
 		<LBRACE> 
                 (
-                    exp = FunctionCorese(stack) { values.addExp(exp); }
+                    exp = BuiltInCall(stack) { values.addExp(exp); }
                     |
                     (
 			<LPAREN> 
@@ -1191,7 +969,7 @@ Values Values() : {
 		
 		<LBRACE> 
                 (
-                     exp = FunctionCorese(stack) { values.addExp(exp); }
+                     exp = BuiltInCall(stack) { values.addExp(exp); }
                     |
                     (
 			{ value   = new ArrayList<Constant>(); }
@@ -1273,9 +1051,7 @@ void GroupClause(): { Variable var; Expression exp; Exp stack;}
   (
   
   ( LOOKAHEAD(2)
-  	( 
-  	//exp = BrackettedExpression(stack) |
-  	
+  	(   	
   	  <LPAREN> exp = Expression(stack) (<AS> var = Var() ) ? <RPAREN> |
   	  exp = Var() |
   	  exp = BuiltInCall(stack) |
@@ -1285,7 +1061,6 @@ void GroupClause(): { Variable var; Expression exp; Exp stack;}
   	{ astq.setGroup(exp, var); }
   ) + 
   	
- // 	| <ANY> { astq.setConnex(true); }
   )
 }
 
@@ -1324,8 +1099,6 @@ void OrderCondition() : { boolean reverse; Token t; String sortby; Variable v; E
     		( <ASC> | <DESC> { reverse = true; } )? 
     		( 
     			a = BrackettedExpression(stack) { astq.setSort(a, reverse); }
-    			| t = <DISTANCE> { sortby = t.image; astq.setSort(sortby, reverse); }
-    			| t = <COUNT> { sortby = t.image; astq.setSort(sortby, reverse); }
     		)
     	)    		
   	)  	
@@ -1333,7 +1106,6 @@ void OrderCondition() : { boolean reverse; Token t; String sortby; Variable v; E
 
 void ProjLimitClause() : { Token t; }
 {
-	Projection() ( LimitClause() ) ? | 
 	LimitClause()
 }
 
@@ -1357,12 +1129,12 @@ void OffsetClause() : { Token t; }
 
 
 
-Exp GroupGraphPattern() : {Exp stack;}
+Exp GroupGraphPattern() : {Exp stack; Metadata meta = null;}
 {
   { stack = BasicGraphPattern.create(); }
   <LBRACE>  
     (    
-  	  SubQuery(stack) |
+  	  SubQuery(meta, stack) |
   	  GraphPattern(stack) 
   	)
   <RBRACE>
@@ -1436,15 +1208,15 @@ void GraphPatternNotTriples(Exp stack) : {ASTQuery ast; Values values;}
  	| values = Values() { stack.add(values); }
 }
 
-void SubQuery(Exp stack) : {ASTQuery ast; Query q; Exp exp;}
+void SubQuery(Metadata meta, Exp stack) : {ASTQuery ast; Query q; Exp exp;}
 {
  { ast = astq; astq = gast.subCreate(); } 
- exp = SelectQuery(null) 
+ exp = SelectQuery(meta) 
  { astq.setBody(exp); q = Query.create(astq); stack.add(q); astq = ast; } 
 }
 
-Exp SubQueryExp() : { Exp exp; }{
-    { exp = BasicGraphPattern.create(); } SubQuery(exp)
+Exp SubQueryExp(Metadata meta) : { Exp exp; }{
+    { exp = BasicGraphPattern.create(); } SubQuery(meta, exp)
     { return exp; }
 }
 
@@ -1461,19 +1233,19 @@ Exp ServiceExp() : {Exp exp, res; ASTQuery tmp; Query q;} {
     }
 }
 
-Exp SubConstruct() : {ASTQuery ast; Query q; Exp exp;}
+Exp SubConstruct(Metadata meta) : {ASTQuery ast; Query q; Exp exp;}
 {
  { ast = astq; astq = gast.subCreate(); } 
- exp = ConstructQuery(null) 
+ exp  = ConstructQuery(meta) 
  { astq.setBody(exp); q = Query.create(astq); astq = ast; return q;} 
 }
 
-Exp SubUpdate() : {ASTQuery ast; ASTUpdate up, save; Query q; Exp exp;}
+Exp SubUpdate(Metadata meta) : {ASTQuery ast; ASTUpdate up, save; Query q; Exp exp; }
 {
  { ast = astq; save = astu; astu = astu.subCreate(); astq = gast.subCreate(); astq.set(astu); 
    astq.shareForUpdate(gast);
    astq.setBody(BasicGraphPattern.create()); } 
-  UpdateQuery(null) 
+  UpdateQuery(meta) 
  { q = Query.create(astq); astq = ast; astu = save; return q;} 
 }
 
@@ -1514,7 +1286,7 @@ void Bind(Exp stack) : { Expression exp; Exp q; Variable var, vv;}
 
 void OptionalGraphPattern(Exp stack) : { Exp e; }
 { 
-	( <OPTIONAL> | <OPTION> { deprecated("option","optional"); } ) 
+	<OPTIONAL> 
   	e = GroupGraphPattern()
   	{ 
   		e= Optional.create(e);
@@ -1562,7 +1334,7 @@ void GraphGraphPattern(Exp stack) :
 	 <GRAPH>
 	 
   	src = VarOrIRIref(stack) 
-  	{ graphPattern(src); }
+  	{ handler.graphPattern(src); }
   	e = GroupGraphPattern()
   	{ 
   		st =  Source.create(src, e);
@@ -1575,7 +1347,7 @@ void GraphGraphPattern(Exp stack) :
   		}
   		stack.add(st);
   	}
-  	{ endGraphPattern(src); }
+  	{ handler.endGraphPattern(src); }
 }
 
 void ServicePattern(Exp stack) : 
@@ -1611,7 +1383,7 @@ void GroupOrUnionGraphPattern(Exp stack) : { Exp temp, res; }
 {
 	res = GroupGraphPattern()
   	( 
-  	  	( <UNION> | <OR> { deprecated("or","union"); } )
+  	  	<UNION> 
   	  	{ 
   	  		temp = res;
       		res =  Union.create();
@@ -1630,13 +1402,13 @@ void Constraint(Exp stack) : { }
 }
 
 
-void Filter(Exp stack) : { Expression expression1; Triple triple; }
+void Filter(Exp stack) : { Expression expression1; Exp filter; }
 {
   expression1 = FilterExp(stack)
   { 
   		if (expression1 != null ) {
-	    	triple = astq.createTriple(expression1);
-	    	stack.add(triple);    	
+	    	filter = astq.checkCreateFilter(expression1);
+	    	stack.add(filter);    	
 	    }
   }
 }
@@ -1704,65 +1476,72 @@ void TriplesSameSubject(Exp stack) : { Expression expression1; }
 {
   ( LOOKAHEAD(2)
   	expression1 = VarOrTerm(stack)
-	stack = PropertyListNotEmpty(expression1, stack)
+	stack       = PropertyListNotEmpty(expression1, stack)
   |
   	expression1 = TriplesNode(stack)
-  	stack = PropertyList(expression1, stack)
-  	
+  	stack       = PropertyList(expression1, stack)
+  | stack = RDFstar(stack)	
   | stack = tuple(stack)
-  | stack = triple(stack)
   )
 }
 
-// tuple(p s o v)
-Exp tuple(Exp stack): { Expression expression1, expression2, expressioni; ArrayList<Atom> list; Atom prop; Triple triple; } {
-	<TUPLE> <LPAREN> 
+// << s p o >> q v .
+Exp RDFstar(Exp stack) : {  Atom ref; }
+{
+    ref = StarTriple(stack)
+    stack  = PropertyListNotEmpty(ref, stack)
+    { return stack; }
+}
+
+Atom StarTriple(Exp stack) : 
+{Atom refatom = null; Atom sub, obj, ref, pred;  Triple t;}
+{
+    <LT><LT> 
+        sub = StarTerm(stack) pred = Verb() obj = StarTerm(stack) ( refatom = VarOrTerm(stack)  )?
+        { ref = handler.createTripleReference(astq, refatom) ;
+          t = handler.createTriple(astq, pred, sub, obj, ref);
+          if (t != null) { stack.add(t); }
+        }
+    <GT><GT>
+    { return ref; }
+}
+
+Atom StarTerm(Exp stack) : { Atom term; }
+{
+    (
+        term = GraphNode(stack)
+      | term = StarTriple(stack)
+    )
+    { return term; }
+}
+
+// tuple(p s o v) triple(s p o v)
+Exp tuple(Exp stack): 
+{ Atom subject, object, term; Variable var; ArrayList<Atom> list; Atom prop; Triple triple;
+  boolean arity = false, isTriple = true;
+} {
+	( <TUPLE> { isTriple = false; } | <TRIPLE> ) <LPAREN> 
 	
-	prop = Verb2()
-	expression1 = GraphNode(stack)
-	expression2 = GraphNode(stack)
-	{ 
-        list = new ArrayList<Atom>();
-        list.add(expression1.getAtom());
-        list.add(expression2.getAtom());       
-	}
+	prop = Verb()
+	subject = GraphNode(stack)
+	object  = GraphNode(stack)
+        { if (isTriple) { term = prop; prop = subject; subject = term; } } // triple(subject property objet)
+	{ list = new ArrayList<Atom>(); list.add(subject); list.add(object); }
 	
-	(  expressioni = GraphNode(stack)  
-	  { list.add(expressioni.getAtom()); } 
-	)*
+	(  term = GraphNode(stack)  { list.add(term); } )*
+
+        ( <BAR> var = Var() { var.setMatchNodeList(true) ; list.add(var); } (<BAR> { var.setMatchCardinality(true) ;} ) ?) ?
+
+        ( <DOT> { arity = true; }) ?
 	  
 	<RPAREN>
 	{ 
-	    triple = createTriple(prop, list); 
-	    if (triple != null){ stack.add(triple);	}	
-		return stack; 
+	    triple = handler.createTriple(astq, prop, list, arity); 
+	    if (triple != null) { stack.add(triple); }	
+	    return stack; 
 	}
 }
 
-// triple(s p o v)
-Exp triple(Exp stack): { Expression expression1, expression2, expressioni; ArrayList<Atom> list; Atom prop; Triple triple; } {
-	<TRIPLE> <LPAREN> 
-	
-	expression1 = GraphNode(stack)
-	prop = Verb2()
-	expression2 = GraphNode(stack)
-	{ 
-            list = new ArrayList<Atom>();
-            list.add(expression1.getAtom());
-            list.add(expression2.getAtom());       
-	}
-	
-	(  expressioni = GraphNode(stack)  
-	  { list.add(expressioni.getAtom()); } 
-	)*
-	  
-	<RPAREN>
-	{ 
-	    triple = createTriple(prop, list); 
-	    if (triple != null){ stack.add(triple);	}	
-		return stack; 
-	}
-}
   
 Exp PropertyList(Expression expression1, Exp stack) : {}
 {  
@@ -1794,75 +1573,38 @@ Exp PropertyListNotEmptyElem( Expression e1, Exp stack) :
   // ObjectList() may fill the stack beyond n in case of [prop ?val] 
   // hence we store the index n to add the triple at n	
   list = ObjectList(stack)
-  { stack = createTriples(stack, e1, p, list, n);  
+  { stack = handler.createTriples(astq, stack, e1, p, list, n);  
     return stack ; }
 }
 
 
-Atom Verb2(): { Atom atom; String[] s; Token t; }
-{
-  s = PQualifier()
-  atom = Verb()
-  {
-  	if (s[0]!="") { atom.setIsone(true); }
-  	if (s[1]!="") { atom.setIsall(true); }
-  	if (s[2]!="") { atom.setIsdirect(true); }
-  }
- 
- 
-  { return atom; }
-}
-
-String[] PQualifier(): { String[] s; String s1, s2, s3; }
-{
-	{ s1=""; s2=""; s3=""; }
-	(
-		s1 = One2() ( ( s2 = All2() ( s3 = Direct2() )? ) | ( s3 = Direct2() ( s2 = All2() )? ) )?
-	  	| s2 = All2() ( ( s1 = One2() ( s3 = Direct2() )? ) | ( s3 = Direct2() ( s1 = One2() )? ) )? 
-	  	| ( s3 = Direct2() ( ( s1 = One2() ( s2 = All2() )? ) | ( s2 = All2() ( s1 = One2() )? ) )? )?
-	)
-	{ 
-		s = new String[3];
-		s[0] = s1; // one
-		s[1] = s2; // all
-		s[2] = s3; // direct
-	}
-  	{ return s; }
-}
-
-String One2(): { Token t; }
-{
-	( t = <ONE2> | t = <CURRENT> )
-	{ return t.image; }
-}
-
-String All2(): { Token t; }
-{
-	t = <ALL2>
-	{ return t.image; }
-}
-
-String Direct2(): { Token t; }
-{
-	t = <DIRECT2>
-	{ return t.image; }
-}
 
 ExpressionList ObjectList(Exp stack): { Expression expression1; ExpressionList v; }
 {
   { v = new ExpressionList(); }
   
-  expression1 = GraphNode(stack)
+  expression1 = PropertyValue(stack)
   { v.add(expression1); }
   
   ( 
   	 <COMMA> 
-     expression1 = GraphNode(stack)
+     expression1 = PropertyValue(stack)
      { v.add(expression1); }
   ) *
   
   { return v; }
 }
+
+
+Expression PropertyValue(Exp stack) : { Expression exp; }
+{
+    (
+        exp = GraphNode(stack)
+      | exp = StarTriple(stack)
+    )
+    { return exp; }
+}
+
 
 Atom Verb() : { Atom atom; }
 {
@@ -1921,13 +1663,7 @@ Expression RegExp():{Token t; String s; Expression exp;}
 	   
 	  { exp = astq.createFunction(t.image, astq.createConstant(s, null, null)); }  |
 
-	  exp = AddRegExp()   | 
-	
-	(
-		t = <INV> | t = <SHORT> | t = <SHORTALL> | t = <DEPTH> | t = <BREADTH> | t = <DISTINCT> 
-	)
-	
-	  	exp = RegExp()  { exp = astq.createOperator(t.image, exp); }
+	  exp = AddRegExp()   
 )
 	
 	{return exp;}
@@ -1988,8 +1724,6 @@ Expression UnaryRegExp():{Token t, t1, t2; Expression exp; Token ope; String s1,
 
 	exp = PrimaryRegExp()   { exp = astq.createOperator(t.image, exp);  }
 	
-//	( ope = OpeRegExp()     { exp = astq.createOperator(ope.image, exp); }  )  ? 
-
 	
 |	exp = PrimaryRegExp()  
 
@@ -2093,7 +1827,6 @@ Token Soper(): { Token t; }
   | t = <LE> | t = <GE>
   | t = <EQ2> | t = <NE2> 
   | t = <TILDE> 
- // | t = <IN> 
   | t = <BEGIN_WITH>
   )
   { return t; }
@@ -2111,16 +1844,16 @@ Token Toper(): { Token t; }
 // Anything that can stand in a node slot and which is
 // a number of triples
 
-Expression TriplesNode(Exp stack) : { Expression expression1; }
+Atom TriplesNode(Exp stack) : { Atom expression1; }
 {
   ( 
-  	expression1 = Collection(stack) 
+  	  expression1 = Collection(stack) 
   	| expression1 = BlankNodePropertyList(stack) 
   )
   { return expression1; }
 }
 
-Expression BlankNodePropertyList(Exp stack) : { Expression expression1; }
+Atom BlankNodePropertyList(Exp stack) : { Atom expression1; }
 {
   { 
   	// [ :p ?y ]
@@ -2148,16 +1881,16 @@ Expression BlankNodePropertyList(Exp stack) : { Expression expression1; }
 * _:b3 rdf:first _:b4	_:b3 rdf:rest rdf:nil	_:b4 rdf:first 3	_:b4 rdf:rest rdf:nil
 *
 */
-Expression Collection(Exp stack) : 
+Atom Collection(Exp stack) : 
 { 
-  ArrayList<Expression> list;
-  Expression node, head;
+  ArrayList<Atom> list;
+  Atom node, head;
   RDFList rlist;
   int arobase = ASTQuery.L_DEFAULT, save = ASTQuery.L_LIST;
 }
 {
 	{
-		list = new ArrayList<Expression>();
+		list = new ArrayList<Atom>();
                 save = astq.getListType();
 	}
 	
@@ -2183,7 +1916,7 @@ Expression Collection(Exp stack) :
   	) +
   	<RPAREN>
   	{ 
-  	    head = list(stack, list, arobase);
+  	    head = handler.list(astq, stack, list, arobase);
             astq.setListType(save);
   	    return head; 
   	}
@@ -2196,7 +1929,7 @@ Expression Collection(Exp stack) :
 
 // -------- Nodes in a graph pattern or template
 
-Expression GraphNode(Exp stack) : { Expression expression1; }
+Atom GraphNode(Exp stack) : { Atom expression1; }
 {
   (   LOOKAHEAD(2)
   	  expression1 = VarOrTerm(stack) 
@@ -2231,11 +1964,13 @@ Atom VarOrIRIref(Exp stack) : { Atom a; String s; }
 }
 
 
-Variable Var() : { Token t1; Variable res; String s;} // boolean isPath = false;}
+Variable Var() : { Token t1; Variable res; String s;} 
 {
-  ( t1 = <VAR1> { s = t1.image; } | 
-    t1 = <VAR2> { s = "?"+(t1.image).substring(1,(t1.image).length()); } ) //isPath = true;} ) 
-  { res = ASTQuery.createVariable(s, astq); } //res.setPath(isPath);}
+  (   t1 = <VAR1> { s = t1.image; }  
+    | t1 = <VAR2> { s = "?"+(t1.image).substring(1,(t1.image).length()); }  
+    | t1 = <VAR3> { s = "?"+(t1.image); } 
+  ) 
+  { res = ASTQuery.createVariable(s, astq); } 
   
   { return res; }
 }
@@ -2254,12 +1989,9 @@ Atom GraphTerm(Exp stack) : { Constant cst; String s; Token t1; Variable var; At
  	    )?
   	| t1 = <QNAME_NS> { cst = astq.createQName(t1.image); }
   	| cst = RDFLiteral() 
-  	| // ( <MINUS> | <PLUS> )? 
-  	  cst = NumericLiteral()
+  	| cst = NumericLiteral()
   	| cst = BooleanLiteral()   
-  	| 
- // 		t1 = <NIL> 
-  		t1 = <LPAREN>  <RPAREN> 
+  	| <LPAREN>  <RPAREN> 
   	{ cst = astq.createQName(RDFS.qrdfNil); }  
   	) { a = cst; }
   	| a = BlankNode(stack) 
@@ -2309,7 +2041,6 @@ Expression RelationalExpression(Exp stack) : { Token t1; Expression expression1,
   ( 
     (   
         t1 = Soper() expression2 = NumericExpression(stack)
-//      | t1 = Toper() expression2 = NumericExpression(stack)  
       |  (<NOT> {not = true;} )? 
         t1 = <IN>    el = ArgList(stack) {expression2 = astq.createList(el);}
     ) 
@@ -2355,7 +2086,6 @@ Expression MultiplicativeExpression(Exp stack) : { Token t1; Expression expressi
     { expression1 = astq.createMultiplicativeExpression(t1.image, expression1, expression2); }
   )*
   { return expression1; }
-//   | <REM> UnaryExpression()
 }
 
 Expression UnaryExpression(Exp stack) : { Token t1; Expression expression1; }
@@ -2371,22 +2101,97 @@ Expression UnaryExpression(Exp stack) : { Token t1; Expression expression1; }
   { return expression1; }
 }
 
-Expression BuiltInCall(Exp stack) : { Expression expression1, expression2; Variable var1; Token t1; Term term; }
+Expression BuiltInCall(Exp stack) : { ExpressionList el; Expression exp1 = null, exp2; Variable var1; Token t1; Term term; }
 {
   (
-    ( ( 
-        t1 = <STR> | 
-        t1 = <DTYPE> | t1 = <LANG> | t1 = <IS_IRI> | t1 = <IS_URI> | 
-        t1 = <IS_BLANK> | t1 = <IS_LITERAL> ) 
-    	<LPAREN> expression1 = Expression(stack) <RPAREN> 
-      { term = astq.createFunction(t1.image, expression1); } 
+
+    (t1 = <BOUND> <LPAREN> var1 = Var() <RPAREN> 
+     { term = astq.createFunction(t1.image, var1); } )
+
+    | 
+ 
+    (
+    (
+    t1  = <BNODE> | t1 = <ERROR>
     )
-    | t1 = <BOUND> <LPAREN> var1 = Var() <RPAREN> 
-      { term = astq.createFunction(t1.image, var1); } 
-    | t1 = <LANGMATCHES> <LPAREN> expression1 = Expression(stack) <COMMA> expression2 = Expression(stack) <RPAREN>
-      { term =  astq.createFunction(t1.image, expression1); 
-        term.add(expression2); } 
-    | term = RegexExpression(stack)
+
+    <LPAREN> 
+        ( exp1 = Expression(stack) ) ? 
+        { term = astq.createFunction(t1.image); 
+          if (exp1 != null) { term.add(exp1); }
+        } 
+    <RPAREN>
+    )
+
+    |
+
+    ((
+    t1  = <UUID> | t1 = <STRUUID> | t1 = <NOW> | t1 = <RAND>
+    )
+
+    <LPAREN><RPAREN>
+    { term = astq.createFunction(t1.image); } 
+    )
+
+    |
+
+    ( ( 
+          t1 = <STR> | t1 = <URI> | t1 = <IRI>
+        | t1 = <DTYPE> | t1 = <LANG> 
+        | t1 = <IS_IRI> | t1 = <IS_URI>  
+        | t1 = <IS_BLANK> | t1 = <IS_LITERAL> 
+        | t1 = <IS_NUMERIC> 
+        | t1 = <IS_EXTENSION> 
+        | t1 = <IS_SAFE>
+        | t1 = <IS_UNDEFINED>
+        | t1 = <IS_WELLFORMED>
+        | t1 = <STRLEN> | t1 = <UCASE> | t1 = <LCASE> | t1 = <ENCODE_FOR_URI>
+        | t1 = <MD5> | t1 = <SHA1> | t1 = <SHA256> | t1 = <SHA384> | t1 = <SHA512>
+        | t1 =  <ROUND> | t1 = <FLOOR> | t1 = <CEIL>  | t1 = <ABS> 
+        | t1 =  <YEAR> | t1 = <MONTH> | t1 = <DAY> | t1 = <HOURS> | t1 = <MINUTES> | t1 = <SECONDS> | t1 = <TIMEZONE> | t1 = <TZ>
+        | t1 = <UNNEST>  | t1 = <RETURN> | t1 = <SELF> | t1 = <EVAL>
+   )
+ 
+
+      <LPAREN> exp1 = Expression(stack) <RPAREN> 
+      { term = astq.createFunction(t1.image, exp1); } 
+    )
+
+    |
+ 
+    (
+    (t1 = <AGGREGATE> | t1 = <GROUP_CONCAT> | t1 = <COUNT> | t1 = <SUM> | t1 = <SAMPLE> | t1 = <AVG> | t1 = <MIN> | t1 = <MAX>)
+     el = ArgList(stack)  
+    { term = astq.createFunction( t1.image, el); }
+    )
+
+    |
+
+    (
+    (t1 = <LANGMATCHES> | t1 = <POWER> | t1 = <XPATH>
+    | t1 = <SAMETERM> | t1 = <STRDT> | t1 = <STRLANG> | t1 = <CONTAINS> 
+    | t1 = <STRSTARTS> | t1 = <STRENDS> | t1 = <STRBEFORE>  | t1 = <STRAFTER>
+    | t1 = <REDUCE> | t1 = <APPLY>
+    )
+     <LPAREN> exp1 = Expression(stack) <COMMA> exp2 = Expression(stack) <RPAREN>
+
+      { term =  astq.createFunction(t1.image, exp1); term.add(exp2); }
+    )
+
+
+    |
+
+    (
+    ( t1 = <REGEX> | t1 = <COALESCE> | t1 = <CONCAT> | t1 = <SUBSTR> | t1 = <REPLACE>
+    | t1 = <METHOD> | t1 = <FUNCALL> | t1 = <MAP> | t1 = <MAPLIST> | t1 = <MAPMERGE>  
+    | t1 = <MAPFINDLIST> | t1 = <MAPFIND> | t1 = <MAPANY> | t1 = <MAPEVERY> )
+    <LPAREN> 
+    { term =  astq.createFunction(t1.image); }
+      exp1 = Expression(stack) { term.add(exp1); }
+      (<COMMA> exp2 = Expression(stack) { term.add(exp2); } )* 
+    <RPAREN>
+    )
+
     | term = exists()
   )
   { return term; }
@@ -2407,29 +2212,10 @@ Term exists() : {Exp exp; Term term; boolean neg;}
 }
 
 
-Term RegexExpression(Exp stack): { Term term; Token t; Expression expression1, expression2; }
-{
-  t = <REGEX> 
-  <LPAREN>
-      expression1 = Expression(stack) <COMMA> expression2 = Expression(stack)
-      { term = astq.createFunction(t.image, expression1);
-      term.add(expression2); }
-      ( <COMMA> expression2 = Expression(stack) { term.add(expression2); } ) ?
-  <RPAREN>
-  { return term; }
-}
-
 Term FunctionCorese(Exp stack): { Token t; Term term = null; ExpressionList v; Constant cst; Exp sub; }
 {	
-	// distance namespace isMulti sqrt depth cardinality isuri occurence
-  ((
-	( t = <SIMPLE_STRING> | t = <DISTANCE> | t = <SCORE> | t = <COUNT> | t = <XPATH>  )
-	v = ArgList(stack)
-	{ 
-		term = astq.createFunction(t.image, v); 
-	}
-  )
-  | term = IfThenElse(stack)
+  (
+    term = IfThenElse(stack)
   | term = Let(stack)
   | term = Set(stack)
   | term = For(stack)
@@ -2440,15 +2226,16 @@ Term FunctionCorese(Exp stack): { Token t; Term term = null; ExpressionList v; C
   { return term; }
 }
 
-Term QueryExp () : {Expression exp = null; Exp stack; Term term; Exp sub;}
+Term QueryExp () : {Expression exp = null; Exp stack; Term term; Exp sub; Metadata meta = null;}
 {
-   <QUERY> <LPAREN>    
+   <QUERY> <LPAREN>  
+    meta = Annotate()
     (
-    sub = SubQueryExp() 
+    sub = SubQueryExp(meta) 
     |
-    sub = SubConstruct() { sub = BasicGraphPattern.create(sub); }
+    sub = SubConstruct(meta) { sub = BasicGraphPattern.create(sub); }
     |
-    sub = SubUpdate()    { sub = BasicGraphPattern.create(sub); }
+    sub = SubUpdate(meta)    { sub = BasicGraphPattern.create(sub); }
     )
     (  <COMMA>
         { stack = BasicGraphPattern.create(); }
@@ -2466,11 +2253,9 @@ Term IfThenElse (Exp stack) : {Expression test, e1, e2 = null;}
      <COMMA> e1 = Expression(stack) <COMMA> e2 = Expression(stack) <RPAREN>  
     |
      <RPAREN>
-//     <LBRACE> e1 = Expression(stack) <RBRACE>  
        e1 = Body(stack)
      (<ELSE> 
         (
-//          <LBRACE> e2 = Expression(stack) <RBRACE>
             e2 = Body(stack)
           |
           e2 = IfThenElse (stack)
@@ -2482,7 +2267,8 @@ Term IfThenElse (Exp stack) : {Expression test, e1, e2 = null;}
 
 
 Term For (Exp stack) : 
-{boolean isLoop = false; Exp sub; Term t; Expression exp, body ; Variable var = null; ExpressionList arg, el = null; }
+{boolean isLoop = false; Exp sub; Term t; Expression exp, body ; Variable var = null; 
+ExpressionList arg, el = null; Metadata meta = null;}
 {
     (<FOR> | <LOOP> {isLoop = true;})
     <LPAREN> 
@@ -2504,8 +2290,8 @@ Term For (Exp stack) :
         )
 
         |
-
-        sub = SubQueryExp()  { el = new ExpressionList(); exp = astq.term(sub); }
+        meta = Annotate()
+        sub = SubQueryExp(meta)  { el = new ExpressionList(); exp = astq.term(sub); }
      )
     <RPAREN>   
     body = Body(stack)
@@ -2514,16 +2300,17 @@ Term For (Exp stack) :
 }
 
 
-Expression LetForExp() : {Exp sub; Expression exp;}
+Expression LetForExp() : {Exp sub; Expression exp; Metadata meta = null;}
 {
+meta = Annotate()
 (
-    sub = SubQueryExp() { exp = astq.term(sub); }
+    sub = SubQueryExp(meta) { exp = astq.term(sub); }
     |
     sub = ServiceExp()  { exp = astq.term(sub); }
     |
-    sub = SubConstruct() { exp = astq.term(BasicGraphPattern.create(sub)); }
+    sub = SubConstruct(meta) { exp = astq.term(BasicGraphPattern.create(sub)); }
     |
-    sub = SubUpdate()    { exp = astq.term(BasicGraphPattern.create(sub)); }
+    sub = SubUpdate(meta)    { exp = astq.term(BasicGraphPattern.create(sub)); }
     | 
     <AT> exp = CstList() 
 
@@ -2563,19 +2350,19 @@ IDatatype ListTerm() : { String s; Token t1;  Atom a; }
 
 
 Term Let (Exp stack) : 
-{Expression exp ; Expression arg; ExpressionList list; }
+{boolean dynamic = false; Expression exp ; Expression arg; ExpressionList list; }
 {
-        <LET>
+        ( <LET> | <LETDYN> { dynamic = true; })
         <LPAREN> 
                { list = new ExpressionList(); }
                (
-                arg = LetDef(stack) { list.add(arg); }   
+                arg = LetDef(stack)           { list.add(arg); }   
                 ( <COMMA> arg = LetDef(stack) { list.add(arg); } )*   
                )
         <RPAREN>
         exp = Body(stack)
     
-      { return astq.let(list, exp); }
+      { return astq.let(list, exp, dynamic); }
 }
 
 Term Set (Exp stack) : { Expression exp ; Variable var;}
@@ -2592,7 +2379,7 @@ Term Set (Exp stack) : { Expression exp ; Variable var;}
 
 
 Expression LetDef(Exp stack) : 
-{ Variable var = null;   Expression exp ; ExpressionList el = null; Exp sub; Constant type = null; }
+{ Variable var = null;   Expression exp ; ExpressionList el = null; Exp sub; Constant type = null; Metadata meta = null;}
 {
 ( 
   ( (type = IRIrefConst())? var = Var() 
@@ -2608,7 +2395,8 @@ Expression LetDef(Exp stack) :
 
  |
   // let (select where)
-  sub = SubQueryExp() { el = new ExpressionList(); exp = astq.term(sub); }
+  meta = Annotate()
+  sub = SubQueryExp(meta) { el = new ExpressionList(); exp = astq.term(sub); }
 )			
    { return (el == null) ? astq.defLet(var, type, exp) : astq.defLet(el, exp);  }
  
@@ -2648,16 +2436,22 @@ Expression StdIRIrefOrFunction(Exp stack) : { String s1; ExpressionList v; Term 
 }
 
 
-Function Function(Metadata la) : 
-{Exp stack; Token t = null; Function term;   ExpressionList v; Constant cst; Expression body;}
+Function Function(Metadata global, Metadata local) : 
+{Exp stack; Token t = null; Function term;   ExpressionList v; Constant type, name=null; Expression body;}
 {
-  <FUNCTION> cst = IRIrefConst() 
-  { stack = BasicGraphPattern.create(); }
+  <FUNCTION>  type = IRIrefConst() (name = IRIrefConst())?
+  { stack = BasicGraphPattern.create(); handler.setMetadata(metadata(global, local)) ;}
   v = FunArgList()
   body = Body(stack)
 
-  { 
-  	term = astq.defineFunction(cst, v, body, la );        
+  {     
+        // type  is optional, name is mandatory
+        if (name == null) {
+            name = type;
+            type = null;
+        }
+  	term = astq.defineFunction(name, type, v, body, metadata(global, local) ); 
+        handler.cleanMetadata();
   }
   { return term; }
 }
@@ -2665,14 +2459,13 @@ Function Function(Metadata la) :
 Function Lambda () : 
 {Exp stack; Token t = null; Function term;   ExpressionList v; Constant cst; Expression body;}
 {
-  <LAMBDA> 
+  (<LAMBDA> | <FUNCTION>)
   { stack = BasicGraphPattern.create(); }
-//  v = FunArgList()
   v = LambdaArgList()
   body = Body(stack)
 
   { 
-  	term = gast.defineLambda(v, body, null);        
+  	term = gast.defineLambda(v, body, handler.getMetadata());        
   }
   { return term; }
 }
@@ -2734,20 +2527,6 @@ ExpressionList LetArgList() : { ExpressionList glist, list;  Variable var; Const
 
 
 
-ExpressionList VarList2() : { ExpressionList list;  Variable var; }
-{
-    { list = new ExpressionList(); } 
- 
-     var = Var() { list.add(var);  } ( (<COMMA>)?  var = Var() { list.add(var); } )* 
-
-    ( <BAR>       var = Var() { list.add(var); list.setRest(true); } ) ?
-
-    ( <DOT>       var = Var() { list.add(var); list.setLast(true); }  ( var = Var() { list.add(var);} )* ) ?
-
-    { return list; }
-}
-
-
 ExpressionList VarList() : { ExpressionList list; }
 {
     { list = new ExpressionList(); } 
@@ -2803,19 +2582,21 @@ Expression Body(Exp stack) : { ExpressionList body = new ExpressionList(); Expre
 {
  <LBRACE> ( <RBRACE> |        
         (exp = Expression(stack) | exp = TemplateExpression(stack)) { body.add(exp); } 
-        ( <SEMICOLON> 
+        ( LOOKAHEAD(2) <SEMICOLON> 
         (exp = Expression(stack) | exp = TemplateExpression(stack)) { body.add(exp); } ) *
+          (<SEMICOLON>)?
             <RBRACE>
         ) 
     { return astq.defineBody(body) ; }
 }
 
-void Package(Metadata list) : { Function term; Metadata la; }
+void Package(Metadata global) : { Function term; Metadata la; }
 {
     (<PACKAGE>) ?       
     <LBRACE> 
-        ( la = Annotate() term = Function(la) 
-        { astq.annotate(term, list); } ) +
+        ( la = Annotate() term = Function(global, la) 
+            //{ astq.annotate(term, list); } 
+        ) +
     <RBRACE>
 }
 
@@ -2945,7 +2726,7 @@ String String() : { Token t; }
   |  t = <STRING_LITERAL_LONG1>
   |  t = <STRING_LITERAL_LONG2> 
   )
-  { return remEscapes(t.image); }
+  { return handler.remEscapes(t.image); }
 }
 
 String IRIref() : { String res; }
@@ -3036,9 +2817,6 @@ TOKEN:
 
 | <QNAME: (<NCNAME_PREFIX>)? ":" (["0"-"9"])* (<NCNAME>)? >
 
-//| <BLANK_NODE_LABEL:   "_:"   ( ["0"-"9"]  | <NCNAME> )   ( (<NCNAME> | ".")* <NCNAME> ) ?   >
-
-
 | <BLANK_NODE_LABEL:   "_:"   ( ["0"-"9"]  | <BLANKNAME> )   ( (<BLANKNAME> | ".")* <BLANKNAME> ) ?   >
 
 
@@ -3060,15 +2838,7 @@ TOKEN:
 // anything
 
 TOKEN : { 
-
 	<KW_A: "a" > 
-|	<INV: "i" >
-|	<SHORT:    "s"   >
-|	<SHORTALL: ("sa" | "short")>
-|	<DEPTH: "d" >
-| <BREADTH: "b">
-| <LIST: "list" >
-
 } // Before HEX rule!
 
 TOKEN [IGNORE_CASE] :
@@ -3092,7 +2862,6 @@ TOKEN [IGNORE_CASE] :
 | < OFFSET: "offset" >
 | < ORDER: "order" >
 | < BY: "by" >
-//| < ANY: "any" >
 | < RELAX: "relax" >
 
 | < ASC: "asc" >
@@ -3104,18 +2873,15 @@ TOKEN [IGNORE_CASE] :
 
 // Graph pattern operators 
 | < WHERE: "where" >
-| < AND: "and" >
 | < GRAPH: "graph" >
 | < SERVICE: "service" >
-| < REC : "rec" >
-| < STATE : "state" >
-| < LEAF : "leaf" >
 | < OPTIONAL: "optional" >
 | < UNION: "union" >
 | < MINUSP: "minus" >
 | < NOT: "not">
 | < SCOPE: "scope">
 | < LET: "let">
+| < LETDYN: "letdyn">
 | < SET: "set">
 | < FOR: "for">
 | < LOOP: "loop">
@@ -3146,20 +2912,94 @@ TOKEN [IGNORE_CASE] :
 | < SILENT: "silent">
 | < DATA: "data">
 
+// LDScript
+| <ERROR: "error">
+| <RETURN: "return">
+| <AGGREGATE: "aggregate">
+| <UNNEST: "unnest">
+| <MAP: "map">
+| <MAPLIST: "maplist">
+| <MAPFIND: "mapfind">
+| <MAPFINDLIST: "mapfindlist">
+| <MAPMERGE: "mapmerge">
+| <MAPEVERY: "mapevery">
+| <MAPANY: "mapany">
+| <FUNCALL: "funcall">
+| <EVAL: "eval">
+| <METHOD: "method">
+| <APPLY: "apply">
+| <REDUCE: "reduce">
+| <SELF: "self">
 
 // Expression operators
-| < BOUND: "bound" >
-| < STR: "str" >
-// |  < URI:         "uri" >
-| < DTYPE: "datatype" >
-| < LANG: "lang" >
-| < LANGMATCHES: "langmatches" >
-//|  < IS_IRI:      ("isIRI"|"isURI") >
-| < IS_URI: "isURI" >
-| < IS_IRI: "isIRI" >
-| < IS_BLANK: "isBlank" >
-| < IS_LITERAL: "isLiteral" >
-| < REGEX: "regex" >
+| <BOUND: "bound" >
+| <COALESCE: "coalesce">
+| <SAMETERM: "sameTerm">
+| <STR:     "str" >
+| <STRDT:   "strdt" >
+| <STRLANG:  "strlang" >
+| <BNODE:  "bnode" >
+| <URI:     "uri" >
+| <IRI:     "iri" >
+| <UUID: "uuid">
+| <STRUUID: "struuid">
+| <DTYPE:   "datatype" >
+| <LANG:    "lang" >
+| <LANGMATCHES: "langmatches" >
+| <CONTAINS: "contains">
+| <STRSTARTS: "strstarts">
+| <STRENDS:     "strends">
+| <STRLEN: "strlen">
+| <SUBSTR: "substr">
+| <UCASE: "ucase">
+| <LCASE: "lcase">
+| <STRBEFORE: "strbefore">
+| <STRAFTER: "strafter">
+| <ENCODE_FOR_URI: "encode_for_uri">
+| <CONCAT:  "concat">
+| <REPLACE: "replace">
+| <IS_URI:  "isURI" >
+| <IS_IRI:  "isIRI" >
+| <IS_BLANK: "isBlank" >
+| <IS_LITERAL: "isLiteral" >
+| <IS_NUMERIC: "isNumeric">
+| <IS_EXTENSION: "isExtension">
+| <IS_SAFE: "safe">
+| <IS_UNDEFINED: "isUndefined">
+| <IS_WELLFORMED: "isWellFormed">
+
+| <REGEX: "regex" >
+
+| <RAND: "rand">
+| <ROUND: "round">
+| <FLOOR: "floor">
+| <CEIL: "ceil">
+| <POWER: "power">
+| <ABS: "abs">
+
+| <NOW: "now">
+| <YEAR: "year">
+| <MONTH: "month">
+| <DAY: "day">
+| <HOURS: "hours">
+| <MINUTES: "minutes">
+| <SECONDS: "seconds">
+| <TIMEZONE: "timezone">
+| <TZ: "tz">
+
+| <MD5: "md5">
+| <SHA1: "sha1">
+| <SHA256: "sha256">
+| <SHA384: "sha384">
+| <SHA512: "sha512">
+
+| <GROUP_CONCAT: "group_concat">
+| <SUM: "sum">
+| <SAMPLE: "sample">
+| <AVG: "avg">
+| <MIN: "min">
+| <MAX: "max">
+
 
 | <TRUE: "true" >
 | <FALSE: "false" >
@@ -3171,21 +3011,8 @@ TOKEN [IGNORE_CASE] :
 
 TOKEN [IGNORE_CASE] :
 {
-  <ONE: "one" >
-| <S_MORE: "more" >
-| <MERGE: "merge" >
-| <DISPLAY: "display" >
+  <S_MORE: "more" >
 | <PRAGMA: "pragma" >
-| <D_RDF: "rdf" >
-| <D_JSON: "json" >
-| <D_FLAT: "flat" >
-| <D_ASQUERY: "asquery" >
-| <D_XML: "xml" >
-| <D_BLANK: "blank" >
-//| <D_TABLE: "table" >
-| <THRESHOLD: "threshold" >
-| <RESULT: "result" >
-| <PROJECTION: "projection" >
 | <GROUP: "group" >
 | <FORMAT: "format" >
 | <BOX: "box" >
@@ -3196,20 +3023,13 @@ TOKEN [IGNORE_CASE] :
 | <BIND: "bind">
 | <UNDEF: "undef">
 | <COUNT: "count" >
-| <SOURCE: "source" >
 | <SCORE: "score" >
 | <AS: "as" >
-| <SORT: "sort" >
-| <REVERSE: "reverse" >
-| <OR: "or" >
-| <OPTION: "option" >
 | <SORTED: "sorted" >
 | <ALL2: "all::" >
 | <CURRENT: "current::" >
-| <ONE2: "one::">
 | <DIRECT2: "direct::" >
 | <COLON2: "::" >
-| <DISTANCE: "distance">
 | <DEBUG: "debug">
 | <CHECK: "check">
 | <NOSORT: "nosort">
@@ -3240,10 +3060,7 @@ TOKEN :
 | <EQ_LANG: "~=">
 }
 
-TOKEN [IGNORE_CASE] :
-{
-  <SIMPLE_STRING: <NCNAME> >  
-}
+
 
 // -------------------------------------------------
 
@@ -3299,15 +3116,12 @@ TOKEN :
   < LPAREN: "(" >
 | < RPAREN: ")" >
 
-// I don't know why white space is needed to be included here but not ANON
-//| <NIL: <LPAREN> (<WS>)* <RPAREN> >
 
 | < LBRACE: "{" >
 | < RBRACE: "}" >
 
 | < LBRACKET: "[" >
 | < RBRACKET: "]" >
-// (<WS>)* is not needed but is in NIL
 | < ANON: <LBRACKET> (<WS>)* <RBRACKET> >
 
 | < SEMICOLON: ";" >
@@ -3323,8 +3137,8 @@ TOKEN :
 | < NE: "!=" >
 | < GT: ">" >
 | < LT: "<" >
-| < LE: "<=" > // Maybe: | "=>" >
-| < GE: ">=" > // Maybe: | "=<" >
+| < LE: "<=" > 
+| < GE: ">=" > 
 
 | < BANG: "!" >
 | <TILDE: "~">
@@ -3340,12 +3154,10 @@ TOKEN :
 | < QM: "?" >
 | < BAR: "|" >
 
-
-//| < AMP: "&" >
-//| < REM: "%" >
-
 | < DATATYPE: "^^">
 | < AT: "@">
+| <VAR3: <VARNAME> >
+
 }
 
 // See XML chars.txt for notes

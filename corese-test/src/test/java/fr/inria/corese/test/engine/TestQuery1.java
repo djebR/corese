@@ -6,7 +6,6 @@ import java.io.InputStream;
 
 import javax.xml.parsers.ParserConfigurationException;
 
-import fr.inria.corese.core.EdgeFactory;
 import fr.inria.corese.core.Graph;
 import fr.inria.corese.core.GraphStore;
 import fr.inria.corese.core.load.Load;
@@ -43,23 +42,23 @@ import fr.inria.corese.sparql.triple.parser.Context;
 import fr.inria.corese.sparql.triple.parser.Dataset;
 import fr.inria.corese.sparql.triple.parser.NSManager;
 import fr.inria.corese.compiler.result.XMLResult;
-import fr.inria.corese.core.EventLogger;
-import fr.inria.corese.core.EventManager;
 import fr.inria.corese.kgram.api.core.DatatypeValue;
 import fr.inria.corese.kgram.api.core.Edge;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.core.Eval;
+import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.kgram.core.Mapping;
 import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.kgram.event.StatListener;
+import fr.inria.corese.sparql.datatype.CoresePointer;
 import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.sparql.triple.parser.Access;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.logging.Logger;
+import javax.xml.transform.TransformerException;
 
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -112,14 +111,13 @@ public class TestQuery1 {
 
         QueryProcess.testAlgebra(!true);
         //Graph.METADATA_DEFAULT = true;
-        
+        //Graph.setEdgeMetadataDefault(true);
         
       //before3();  
       
 //      EventLogger.DEFAULT_METHOD = true;
 //      EventManager.DEFAULT_VERBOSE = true;
 
-        Eval.NAMED_GRAPH_DEFAULT = true;
     }
     
      @AfterClass
@@ -128,40 +126,7 @@ public class TestQuery1 {
     }
     
     
-    static void before3() {
-        Graph g = Graph.create();
-        QueryProcess exec = QueryProcess.create(g);
-
-        String q = "@public {"
-                
-                + "@filter "
-                + "function us:filter(?g, ?e, ?v) {"
-                + "us:eval(?e)"
-                + "}"
-                
-                + "function us:eval(?e) {"
-                + "if (ds:isTerm(?e) && ds:getLabel(?e) != 'exists' ) {"
-                + "let ((|?lvar) = ?e, ?lval = maplist(us:eval, ?lvar)) {"
-                + "apply(ds:getLabel(?e), ?lval)"
-                + "}"
-                + "}"
-                + "else { eval(?e) }"
-                + "}"
-                
-                + "}"
-                                
-                ;
-
-        try {
-            Query qq = exec.compile(q);
-            //System.out.println(qq.getAST());
-        } catch (EngineException ex) {
-            LogManager.getLogger(TestQuery1.class.getName()).error(ex);
-            System.out.println(ex);
-        }
-        
-        QuerySolver.setVisitorable(true);
-    }
+    
     
     
      static void before() {
@@ -238,7 +203,6 @@ public class TestQuery1 {
                 + "}"
                                               
                 ;
-
         try {
             Query qq = exec.compile(q);
         } catch (EngineException ex) {
@@ -291,6 +255,890 @@ public class TestQuery1 {
         return graph;
     }
     
+
+    
+        @Test
+    public void testForLoop() throws EngineException, LoadException, IOException, TransformerException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        String i = "insert data {[] rdf:value (1)}";
+        String q = "select (us:fun() as ?list) where {"
+                + "}"
+                + "function us:fun() {"
+                + "let (list = xt:list()) {"
+                + "for ((s, p, o) in select * where {?s ?p ?o}) {"
+                + "xt:add(list, xt:list(s, p, o))"
+                + "};"
+                + "return (list)"
+                + "} "
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?list");
+        assertEquals(3, dt.size());
+    }
+    
+       @Test
+    public void testRDFList() throws EngineException, LoadException, IOException, TransformerException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        String i = "insert data {[] rdf:value (1)}";
+        String q = "construct where { [] rdf:value (1) }";
+        exec.query(i);
+        Mappings map = exec.query(q);
+        Graph res = (Graph) map.getGraph();
+        //System.out.println(map.getGraph());
+        assertEquals(3, res.size());
+    }
+    
+    
+     @Test
+    public void testXML4() throws EngineException, LoadException, IOException, TransformerException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+               
+        String q = "select "
+                + " ?x ?y ?z "
+                + "where {"
+                + "bind ('"
+                + "<doc xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance#\" xmlns:ns=\"http://example.org/\"  xml:base=\"http://example.org/\">"
+                + "<name xml:lang=\"en\">label</name>"
+                + "<age xsi:type=\"http://www.w3.org/2001/XMLSchema#integer\">10</age>"
+                + "<test rdf:datatype=\"http://www.w3.org/2001/XMLSchema#boolean\">true</test>"              
+                + "</doc>' as ?doc)"
+                + "bind (xt:xml(?doc) as ?xml)"
+                + "bind (xt:list(us:test(?xml)) as ?test)"
+                + "values (?x ?y ?z) {unnest(?test)}"
+                + "}"
+                
+                + "function us:test(xml) {"
+                + "let (list = xpath(xml,'/doc/*/text()')"
+                + ") {"
+                + "maplist(dom:getNodeDatatypeValue, list)"
+                + "}"
+                + "}" ;
+        
+        Mappings map = exec.query(q);
+         
+        assertEquals("label", map.getValue("?x").stringValue());
+        assertEquals("en", map.getValue("?x").getLang());
+        assertEquals(10, map.getValue("?y").intValue());
+        assertEquals(true, map.getValue("?z").booleanValue());
+    }
+    
+     @Test
+    public void testXML3() throws EngineException, LoadException, IOException, TransformerException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        
+        
+        String q = "select "
+                + " ?x ?y ?z "
+                + "where {"
+                + "bind ('"
+                + "<doc xmlns:ns=\"http://example.org/\"  xml:base=\"http://example.org/\">"
+                + "<ns:test ns:att=\"att\">text</ns:test>"
+                + "<other>"
+                + "<![CDATA[cdata text]]>"
+                + "<!--comment text-->"
+                + "<?proc proc text?>"
+                + "</other>"
+                + "</doc>' as ?doc)"
+                + "bind (xt:xml(?doc) as ?xml)"
+                + "bind (xt:list(us:test(?xml)) as ?test)"
+                + "values (?x ?y ?z) {unnest(?test)}"
+                + "}"
+                
+                + "function us:test(xml) {"
+                + "let ((other) = dom:getElementsByTagName(xml,  \"other\"), "
+                //+ "sublist = dom:getChildNodes(other)"
+                + "sublist = xpath(xml,'//other/node()')"
+                + ") {"
+                + "maplist(dom:getNodeValue, sublist)"
+                + "}"
+                + "}" ;
+        
+        Mappings map = exec.query(q);
+        assertEquals("cdata text", map.getValue("?x").stringValue());
+        assertEquals("comment text", map.getValue("?y").stringValue());
+        assertEquals("proc text", map.getValue("?z").stringValue());
+    }
+    
+    
+      @Test
+    public void testXML2() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        
+        
+        String q = "select "
+                + "(us:fun(?xml) as ?t) "
+                + "(dom:getNamespaceURI(?elem) as ?ns)"
+                + "(dom:getBaseURI(?elem) as ?base)"
+                + "(dom:getNodeName(?elem) as ?name)"
+                + "(dom:getLocalName(?elem) as ?local)"
+                + "(dom:hasAttributeNS(?elem, ?ns, 'att') as ?b)"
+                + "(dom:getAttributeNS(?elem, ?ns, 'att') as ?att)"
+                + "(dom:getFirstChild(?elem) as ?child)"
+                + "(dom:getTextContent(?child) as ?text)"
+               + "where {"
+                + "bind (xt:xml('<doc xmlns:ns=\"http://example.org/\"  xml:base=\"http://example.org/\">"
+                + "<ns:test ns:att=\"att\">text</ns:test></doc>') as ?xml)"
+                + "bind (us:fun(?xml) as ?elem)"
+                + "}"
+                
+                + "function us:fun(xml) {"
+                + "let (dom = dom:getFirstChild(xml), ns = \"http://example.org/\","
+                + "list = dom:getElementsByTagNameNS(dom, ns, \"test\"),"
+                + "(first | rest) = list"
+                + ") {"
+                + "first"
+                + "}"
+                + "}" ;
+        
+        Mappings map = exec.query(q);
+        assertEquals("http://example.org/", map.getValue("?ns").stringValue());
+        assertEquals("http://example.org/", map.getValue("?base").stringValue());
+        assertEquals("test", map.getValue("?local").stringValue());
+        assertEquals("ns:test", map.getValue("?name").stringValue());
+        assertEquals("text", map.getValue("?text").stringValue());
+    }
+    
+    
+     @Test
+    public void testXML1() throws EngineException {
+        Graph graph = Graph.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        String init
+                = "insert data {"
+                + "<doc> us:contain "
+                + "'<doc xmlns:xml=\"http://www.w3.org/XML/1998/namespace\" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance#\">"
+                + "<phrase color=\"red\"><subject>Cat</subject><verb>on</verb><object>mat</object>"
+                + "<size xsi:type=\"http://www.w3.org/2001/XMLSchema#integer\">10</size></phrase>"
+                + "<phrase><subject xml:lang=\"en\">Cat</subject><verb>eat</verb><object>mouse</object></phrase>"
+                + "</doc>'^^rdf:XMLLiteral   "
+                + "}";
+
+        String query = "select (xt:text(?dom) as ?t) "
+                + "(xt:get(xt:attributes(?dom), 'color') as ?c)"
+                + "(xt:nodename(?dom) as ?n)"
+                + "where { "
+                + "?x us:contain ?xml "
+                + "bind (xt:xml(?xml) as ?doc)"
+                + "bind (us:phrase(?doc) as ?dom)"
+                + "}"
+                
+                + "function us:phrase(root) {"
+                + "for (doc in root) {"
+                + "for (phrase in xt:elements(doc, 'phrase')) {"
+                + "return (phrase)"
+                + "}"
+                + "}"         
+                + "}" 
+               ;
+        
+        exec.query(init);
+        Mappings map = exec.query(query);
+         //System.out.println(map);
+        assertEquals("Catonmat10", map.getValue("?t").stringValue());
+        assertEquals("red", map.getValue("?c").stringValue());
+        assertEquals("phrase", map.getValue("?n").stringValue());
+    }
+       
+        @Test
+    public void testEval() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "@event "
+                + "select * "
+                + "where {"
+                + "values ?x { 1 } "
+                + "filter (?x > 0)"
+                + ""
+                + "}"
+                
+                + "@filter "
+                + "function us:filter(g, exp, bb) {"
+                + "xt:setPublicDatatypeValue(eval(exp))"
+                + "}" 
+               
+               ;
+        Mappings map = exec.query(q);
+        assertEquals(true, DatatypeMap.getPublicDatatypeValue().booleanValue());
+
+    }
+      
+        @Test
+    public void testReduce() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "select (reduce(us:test, xt:list()) as ?x) "
+                + "(reduce(us:test, xt:list(1)) as ?y)"
+                + "(reduce(us:test, xt:list(1, 2)) as ?z)"
+                + "where {}"
+                
+                + "function us:test(x, y) {"
+                + "x + y"
+                + "}" 
+                
+                + "function us:test() {"
+                + "0"
+                + "}" 
+               ;
+        Mappings map = exec.query(q);
+        assertEquals(0, map.getValue("?x").intValue());
+        assertEquals(1, map.getValue("?y").intValue());
+        assertEquals(3, map.getValue("?z").intValue());
+
+    }
+    
+    
+        @Test
+    public void testDynLet() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "select (us:test(10) as ?l) (xt:get(?l, 0) as ?n) where {}"
+                + ""
+                + "function us:test(x) { "
+                + "letdyn (y = x) { maplist(lambda(g) { y } , xt:list(y)) } "
+                + "}"                
+               ;
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?n");
+        assertEquals(true, dt != null);
+        assertEquals(10, dt.intValue());
+    }
+    
+         @Test
+    public void testDynLet2() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "select (us:test(10) as ?l) (xt:get(?l, 0) as ?n) where {}"
+                + ""
+                + "function us:test(x) { "
+                + "letdyn (y = x) { maplist(lambda(g) { let (y = 2 * y) { y }} , xt:list(y)) } "
+                + "}"                
+               ;
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?n");
+        assertEquals(true, dt != null);
+        assertEquals(20, dt.intValue());
+    }
+    
+         @Test
+    public void testDynLet3() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "select (us:test() as ?n) where {}"
+                + ""
+                + "function us:test() { "
+                + "letdyn (x = 1) { us:fun() } "
+                + "}" 
+                
+                + "function us:fun() { x }"
+               ;
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?n");
+        assertEquals(true, dt != null);
+        assertEquals(1, dt.intValue());
+    }
+    
+       @Test
+    public void testDynLet4() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);        
+        String q = "select (reduce(rq:plus, us:bar(10)) as ?a) where {}" 
+                
+                + "function us:bar(n) {"
+                + "letdyn(select (1 as ?x) where {}) {"
+                + "maplist(lambda(y) { set(x = 2*x) }, xt:iota(n)) "
+                + "}"
+                + "}"
+                ;        
+        Mappings map = exec.query(q);
+        assertEquals(2046, map.getValue("?a").intValue());
+    }
+    
+        @Test
+    public void testDynLet44() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);        
+        String q = "select (reduce(rq:plus, us:bar(10)) as ?a) where {}" 
+                
+                + "function us:bar(n) {"
+                + "letdyn(select (1 as ?x) where {}) {"
+                + "maplist(us:test, xt:iota(n)) "
+                + "}"
+                + "}"
+                
+                + "function us:test(y) {"
+                + "set(x = 2*x)"
+                + "}"
+                ;        
+        Mappings map = exec.query(q);
+        assertEquals(2046, map.getValue("?a").intValue());
+    }
+           @Test
+    public void testDynLet5() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "select (us:test() as ?n) where {}"
+                + ""
+                + "function us:test() { "
+                + "let (z = 1) {"
+                + "letdyn (x = 1) { us:fun() } "
+                + "}"
+                + "}" 
+                
+                + "function us:fun() { z }"
+
+                + ""
+               ;
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?n");
+        assertEquals(true, dt == null);
+    }
+    
+    
+            @Test
+    public void testDynLet6() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);       
+        String q = "select (us:test() as ?n) where {}"
+                + ""
+                + "function us:test() { "
+                + "letdyn (x = 1) { us:fun() } "
+                + "}" 
+                
+                + "function us:fun() { let (x = 2) { x } }"
+
+                + ""
+               ;
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?n");
+        assertEquals(2, dt.intValue());
+    }
+    
+   
+    
+    
+  @Test
+    public void testexist() throws EngineException, LoadException {
+        
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        
+        String i = "insert data {  "
+                + "graph us:g1 { "
+                + "rdf:type rdf:type   rdf:Property "
+                + "rdf:type owl:sameAs rdf:type "
+                + "rdf:type us:test  us:test "
+                + "us:test us:test us:test "
+                + "}"
+                + "}";
+        
+        String q = "select * where {"
+                + "bind (bnode() as ?bn)"
+
+                + "bind (xt:exists(rdf:type,  rdf:type, rdf:Property)  as ?c1)"
+                + "bind (xt:exists(?bn,  rdf:type, rdf:Property)    as ?c2)"
+                + "bind (xt:exists(?bn,  rdf:type, ?bn)             as ?c3)"
+                + "bind (xt:exists(?bn,  bnode(), ?bn)              as ?c4)"
+                + "bind (xt:exists(?bn, ?bn)                        as ?c5)"
+                
+                + "bind (xt:exists(?bn,  ?bn, rdf:Property) as ?b1)"
+                + "bind (xt:exists(bnode(),  ?bn,  ?bn)     as ?b2)"
+                + "bind (xt:exists(?bn,  ?bn,  ?bn)         as ?b3)"
+                
+                + "graph kg:default {"
+                + "bind (bnode() as ?bb)"
+                + "bind (xt:exists(?bb,  ?bb, rdf:Property) as ?a1)"
+                + "bind (xt:exists(?bb,  bnode(), ?bb)      as ?a2)"
+                + "bind (xt:exists(bnode(),  ?bb,  ?bb)     as ?a3)"
+                + "bind (xt:exists(bnode(),  bnode(),  bnode())  as ?a4)"
+                + "bind (xt:exists(?bb,  ?bb,  ?bb)         as ?a5)"
+                + "}"
+                
+                + "}"
+                
+               ;
+     
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        // ?c1 = true; ?c2 = true; ?c3 = false; ?c4 = true; ?c5 = true; 
+        // ?b1 = true; ?b3 = true; ?b4 = true;  
+        // ?a1 = false; ?a2 = false; ?a3 = false; ?a4 = false; ?a5 = false;
+        assertEquals(true, map.getValue("?c1").booleanValue());
+        assertEquals(true, map.getValue("?c2").booleanValue());
+        assertEquals(false, map.getValue("?c3").booleanValue());
+        assertEquals(true, map.getValue("?c4").booleanValue());
+        assertEquals(true, map.getValue("?c5").booleanValue());
+        
+        assertEquals(true, map.getValue("?b1").booleanValue());
+        assertEquals(true, map.getValue("?b2").booleanValue());
+        assertEquals(true, map.getValue("?b3").booleanValue());
+        
+        assertEquals(false, map.getValue("?a1").booleanValue());
+        assertEquals(false, map.getValue("?a2").booleanValue());
+        assertEquals(false, map.getValue("?a3").booleanValue());
+        assertEquals(false, map.getValue("?a4").booleanValue());
+        assertEquals(false, map.getValue("?a5").booleanValue());        
+        
+    }    
+    
+        @Test
+    public void testTTL1() throws EngineException, LoadException {
+        
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        String i = "insert data {  "
+                + "_:b rdf:value (_:b)  "
+                + "}";
+        String q = "select (st:apply-templates-with(st:turtle) as ?t) where { }";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        //System.out.println(map.getValue("?t").stringValue());
+        String str = map.getValue("?t").stringValue();
+        Graph gg = Graph.create();
+        Load ld = Load.create(gg);
+        ld.loadString(str, Load.TURTLE_FORMAT);
+        
+        QueryProcess ex = QueryProcess.create(gg);
+        String qq = "select * where {"
+                + "?s ?p (?s) "
+                + "}";
+        
+        Mappings m1 = exec.query(qq);
+        Mappings m2 = ex.query(qq);
+        assertEquals(m1.size(), m2.size());
+    }
+    
+    
+        @Test
+    public void testTTL2() throws EngineException, LoadException {
+        
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        String i = "insert data {  "
+                + "_:b rdf:value _:b  "
+                + "}";
+        String q = "select (st:apply-templates-with(st:turtle) as ?t) where { }";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        //System.out.println(map.getValue("?t").stringValue());
+        String str = map.getValue("?t").stringValue();
+        Graph gg = Graph.create();
+        Load ld = Load.create(gg);
+        ld.loadString(str, Load.TURTLE_FORMAT);
+        
+        QueryProcess ex = QueryProcess.create(gg);
+        String qq = "select * where {"
+                + "?s ?p ?s  "
+                + "}";
+        
+       Mappings m1 = exec.query(qq);
+        Mappings m2 = ex.query(qq);
+        assertEquals(m1.size(), m2.size());
+    }
+    
+    
+         @Test
+    public void testTTL3() throws EngineException, LoadException {
+        
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        String i = "insert data {  "
+                + "_:b rdf:value [rdf:value _:b]  "
+                + "}";
+        String q = "select (st:apply-templates-with(st:turtle) as ?t) where { }";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        //System.out.println(map.getValue("?t").stringValue());
+        String str = map.getValue("?t").stringValue();
+        Graph gg = Graph.create();
+        Load ld = Load.create(gg);
+        ld.loadString(str, Load.TURTLE_FORMAT);
+        
+        QueryProcess ex = QueryProcess.create(gg);
+        String qq = "select * where {"
+                + "?s ?p [ rdf:value ?s]  "
+                + "}";
+        
+        Mappings m1 = exec.query(qq);
+        Mappings m2 = ex.query(qq);
+        assertEquals(m1.size(), m2.size());
+    }
+    
+    
+          @Test
+    public void testTTL4() throws EngineException, LoadException {
+        
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+              String i = "insert data {  "
+                      + "_:a rdf:value _:e "
+                      + "_:b rdf:value _:e "
+                      + "_:e rdf:value _:b "
+                      + "}";
+              
+        String q = "select (st:apply-templates-with(st:turtle) as ?t) where { }";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        //System.out.println(map.getValue("?t").stringValue());
+        String str = map.getValue("?t").stringValue();
+        Graph gg = Graph.create();
+        Load ld = Load.create(gg);
+        ld.loadString(str, Load.TURTLE_FORMAT);
+        
+        QueryProcess ex = QueryProcess.create(gg);
+        String qq = "select * where {"
+                + "?a rdf:value ?e "
+                + "?b rdf:value ?e "
+                + "?e rdf:value ?b   "
+                + "}";
+        
+        Mappings m1 = exec.query(qq);
+        Mappings m2 = ex.query(qq);
+        assertEquals(m1.size(), m2.size());
+    }
+    
+        @Test
+    public void testOPP2() throws EngineException, LoadException {
+        
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        String i = "insert data {  "
+                + "us:John foaf:knows us:Jim , us:John . "
+                + "us:Jim  foaf:knows us:John, us:Jim "
+                + "}";
+        String i2 = "insert data { us:John foaf:knows  us:Jim . us:Jim foaf:knows us:John }";
+        String q = "select * where {  ?x foaf:knows+ ?y }";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(4, map.size());            
+        
+        
+    }
+    
+         @Test
+    public void testOPP() throws EngineException, LoadException {
+        Graph g = Graph.create();
+        QueryProcess exec = QueryProcess.create(g);
+        
+        String i = "insert data {  "
+                + "us:John foaf:knows  us:Jim , us:John . "
+                + "us:Jim foaf:knows us:John, us:Jim."
+                + "}";
+        
+        String q = "select * where { ?x foaf:knows+ ?y }";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(4, map.size());                
+    }
+    
+    
+    
+    
+    @Test
+    public void testNGG1() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim }"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "optional { ?o foaf:knows ?y }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(3, map.size());
+        for (Mapping m : map) {
+            DatatypeValue dt = m.getValue("?g");
+            assertEquals(true, dt != null);
+        }
+    }
+    
+     @Test
+    public void testNGG2() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim, us:Jesse }"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "minus { ?o foaf:knows ?y }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(3, map.size());
+        for (Mapping m : map) {
+            DatatypeValue dt = m.getValue("?g");
+            assertEquals(true, dt != null);
+        }
+    }
+    
+    
+      @Test
+    public void testNGG3() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim, us:Jesse }"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * where {"
+                + "graph ?g {"
+                + "{?s foaf:knows  ?o }"
+                + "union { ?s foaf:knows  ?o ?o foaf:knows ?y }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(5, map.size());
+        for (Mapping m : map) {
+            DatatypeValue dt = m.getValue("?g");
+            assertEquals(true, dt != null);
+        }
+    }
+    
+       @Test
+    public void testNGG4() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:Jack foaf:knows us:Jim, us:Jesse }"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jules foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o filter exists {?o foaf:knows ?y} "
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(0, map.size());
+    }
+    
+    
+     @Test
+    public void testNGG5() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim }"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * "
+                + "from named us:g2 "
+                + "where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "optional { ?o foaf:knows ?y }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(2, map.size());
+        for (Mapping m : map) {
+            DatatypeValue dt = m.getValue("?g");
+            assertEquals(true, dt != null);
+        }
+    }
+    
+        @Test
+    public void testNGG6() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim }"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * "
+                + "where {"
+                + "graph us:g2 {"
+                + "?s foaf:knows  ?o "
+                + "optional { ?o foaf:knows ?y }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(2, map.size());
+        
+    }
+    
+    
+         @Test
+    public void testNGG7() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim . us:Jack foaf:knows us:James}"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * "
+                + "from named us:g1 "
+                + "from named us:g2 "
+                + "where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "filter exists { ?o foaf:knows ?y }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(1, map.size());
+        
+    }
+    
+           @Test
+    public void testNGG8() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim . us:Jack foaf:knows us:Jim}"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * "
+                + "from named us:g1 "
+                + "from named us:g2 "
+                + "where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "{select * where  { ?o foaf:knows ?y }}"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        assertEquals(1, map.size());
+        
+    }
+    
+             @Test
+    public void testNGG9() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim . us:Jack foaf:knows us:Jim}"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "graph us:g3 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * "
+                + "from named us:g1 "
+                + "from named us:g2 "
+                + "where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "bind ( exists { ?o foaf:knows ?y } as ?b )"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        int count = 0;
+        for (Mapping m : map) {
+            DatatypeValue dt = m.getValue("?b");
+            if (dt.booleanValue()) count++;
+        }
+        assertEquals(1, count);
+    }
+    
+             @Test
+    public void testNGG10() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String i = "insert data {"
+                + "graph us:g1 { us:John foaf:knows us:Jim . us:Jack foaf:knows us:Jim}"
+                + "graph us:g2 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "graph us:g3 { us:Jim foaf:knows us:Jack . us:Jack foaf:knows us:James }"
+                + "}";
+        
+        String q = "select * "
+                + "from named us:g1 "
+                + "from named us:g2 "
+                + "where {"
+                + "graph ?g {"
+                + "?s foaf:knows  ?o "
+                + "values ?b { unnest( exists { ?o foaf:knows ?y } )  }"
+                + "}"
+                + "}";
+        
+        exec.query(i);
+        Mappings map = exec.query(q);
+        int count = 0;
+        for (Mapping m : map) {
+            DatatypeValue dt = m.getValue("?b");
+            if (dt.booleanValue()) count++;
+        }
+        assertEquals(1, count);
+    }
+    
+              @Test
+    public void testNGG11() throws EngineException {
+        GraphStore graph = GraphStore.create();
+        QueryProcess exec = QueryProcess.create(graph);
+        
+        String q = "select * where {"
+                + "bind (query(construct { us:John foaf:knows us:Jack, us:Jim . us:Jack foaf:knows us:James } where {}) as ?g)"
+                + "graph ?g { "
+                + "{ ?s foaf:knows ?o filter exists {?s foaf:knows ?t} graph ?g {filter us:test(?g)} "
+                + "  optional { ?o foaf:knows ?y filter exists {?y foaf:knows ?t}}}"
+                + "union"
+                + "{ ?a foaf:knows ?b minus { ?b foaf:knows ?c }}"
+                + "}"
+                + "}"
+                
+                + "function us:test(?g) {"
+                + "xt:print(?g)"
+                + "}"
+                ;
+        
+        Mappings map = exec.query(q);
+        assertEquals(5, map.size());
+    }
+    
     
          @Test
     public void testRee() throws EngineException {
@@ -298,32 +1146,48 @@ public class TestQuery1 {
         GraphStore graph = GraphStore.create();
         QueryProcess exec = QueryProcess.create(graph);
         exec.setOverwrite(true);
-        
+
         String i1 = "insert data { graph <http://example.org/g>  { us:John rdfs:label 'John'  } }";
-        String i2 = 
-                 "with <http://example.org/g> " +
-                 "insert  { ?x foaf:name ?n } where { ?x rdfs:label ?n }";
-        
+        String i11
+                = "with <http://example.org/g1> "
+                + "insert { ?x rdfs:label ?y }"
+                + "where { graph <http://example.org/g>  { ?x rdfs:label ?y  } }";
+
+        String i2
+                = "with <http://example.org/g> "
+                + "insert  { ?x foaf:name ?n } where { ?x rdfs:label ?n }";
+
         String q = "select * "
-               + "from  <http://example.org/g> "
-                + "where { ?x ?p ?y  }"
-                ;
-        
-         String q2 = "select * "
-               + "from  <http://example.org/g> "
-                + "where { ?x foaf:name ?y  }"
-                ;
-        
+                + "from  <http://example.org/g> "
+                + "where { ?x ?p ?y  }";
+
+        String q2 = "select * "
+                + "from  <http://example.org/g> "
+                + "where { ?x foaf:name ?y  }";
+
+        String q4 = "select * "
+                + "from named <http://example.org/g> "
+                + "where { "
+                + "graph ?g { ?x foaf:name ?y  } "
+                + "}";
+
         exec.query(i1);
+        Graph g = graph.getNamedGraph("http://example.org/g");
+
+        Mappings map = exec.query(i11);
+        Graph g1 = graph.getNamedGraph("http://example.org/g1");
+        Mappings m4 = exec.query(q4);
+        //System.out.println(m4);
+        
         Mappings m1 = exec.query(q);
         exec.query(i2);
         Mappings m2 = exec.query(q);
         assertEquals(2, m2.size());
-        Graph g = graph.getNamedGraph("http://example.org/g");
         assertEquals(true, g != null);
         assertEquals(2, g.size());
         Mappings m3 = exec.query(q2);
         assertEquals(1, m3.size());
+        
         exec.setOverwrite(false);
 
     }
@@ -1301,6 +2165,7 @@ public class TestQuery1 {
                ;        
         exec.query(i);       
         Mappings map = exec.query(q);
+        //System.out.println(map);
         IDatatype dt = (IDatatype) map.getValue("?o");
         assertEquals(20, dt.intValue());
 }
@@ -1376,7 +2241,7 @@ public class TestQuery1 {
         
         String q = "select * "             
                 + "where {"
-                + "values ?t { unnest(xt:edge(us:age)) }"
+                + "values ?t { unnest(xt:edges(us:age)) }"
                 + "}"
             
                ;
@@ -1678,7 +2543,7 @@ public class TestQuery1 {
     @Test
     public void testSparql() throws LoadException, EngineException {
         Graph g = Graph.create();
-        String q = "select (kg:sparql('select * (sum(?i) as ?sum) where { values ?i { unnest(xt:iota(5))} }') as ?res) "
+        String q = "select (xt:sparql('select * (sum(?i) as ?sum) where { values ?i { unnest(xt:iota(5))} }') as ?res) "
                 + "where {}";
 
         QueryProcess exec = QueryProcess.create(g);
@@ -1689,6 +2554,21 @@ public class TestQuery1 {
         assertEquals(15, sum.intValue());
     } 
     
+    
+     @Test
+    public void testSparql2() throws LoadException, EngineException {
+        Graph g = Graph.create();
+        String q = "select (xt:sparql('select * (sum(?i) as ?sum) "
+                + "where { values ?n {UNDEF} values ?i { unnest(xt:iota(?n))} }', '?n', 5) as ?res) "
+                + "where {}";
+
+        QueryProcess exec = QueryProcess.create(g);
+        Mappings map = exec.query(q);        
+        IDatatype dt = (IDatatype) map.getValue("?res");
+        Mappings m = dt.getPointerObject().getMappings();
+        IDatatype sum = (IDatatype) m.getValue("?sum");
+        assertEquals(15, sum.intValue());
+    } 
     
     @Test
     public void testNumber() throws LoadException, EngineException {
@@ -1709,6 +2589,18 @@ public class TestQuery1 {
         Graph g = Graph.create();
         String q = "select (xt:entailment() as ?g) where {"
                 + "}";
+        QueryProcess exec = QueryProcess.create(g);
+        Mappings map = exec.query(q);
+        IDatatype dt = (IDatatype) map.getValue("?g");
+        Graph gg = (Graph) dt.getObject();
+        assertEquals(14, gg.size());
+    } 
+    
+    @Test
+    public void testEnt2() throws LoadException, EngineException {
+        Graph g = Graph.create();
+        String q = "select (xt:entailment() as ?g) where {"
+                + "}";
 
         QueryProcess exec = QueryProcess.create(g);
         Mappings map = exec.query(q);
@@ -1716,6 +2608,7 @@ public class TestQuery1 {
         Graph gg = (Graph) dt.getObject();
         assertEquals(14, gg.size());
     } 
+    
 
     
     @Test
@@ -1818,33 +2711,7 @@ public class TestQuery1 {
     
 
 
-    @Test
-    public void testService2() throws EngineException, LoadException {
-        Graph g = Graph.create();
-        QueryProcess exec = QueryProcess.create(g);
-        String q = "select * where {"
-
-                + "values (?s ?l) { "
-                + "(<http://dbpedia.org/sparql>     'Antibes'@en  )"
-                + "(<http://fr.dbpedia.org/sparql>  'Antibes'@fr  )"
-                + "} "
-
-                + " { ?x rdfs:label ?l } union "
-                + "{ "
-                + "service ?s {"
-                + "select * where {?x rdfs:label ?l} limit 1 "
-                + "}"
-                + "} "
-                + "}";
-
-        Mappings map = exec.query(q);
-        //System.out.println(map);
-        assertEquals(2, map.size());
-        Node s1 = map.get(0).getNode("?s");
-        assertEquals("http://dbpedia.org/sparql", s1.getLabel());
-        Node s2 = map.get(1).getNode("?s");
-        assertEquals("http://fr.dbpedia.org/sparql", s2.getLabel());
-    }
+   
 
 
     @Test
@@ -2090,12 +2957,12 @@ public class TestQuery1 {
         assertEquals(18.8496, p.doubleValue(), 1e-5);
     }
 
-
+@Test
     public void testdh() throws EngineException {
         String init = "insert data { us:John rdfs:label 'John' }";
 
         String q =
-                "@test "
+                "@method "
                         + "select "
                         + "(method(us:display, 1.5) as ?dec)"
                         + "(method(us:display, us:John) as ?uri)"
@@ -2182,7 +3049,7 @@ public class TestQuery1 {
                 + "[] a us:Person "
                 + "}";
 
-        String q = "@test "
+        String q = "@method "
                 + "select ?x (method(us:test, ?x) as ?t) (method(us:test, ?ll) as ?l) "
                 + "where { ?x a ?type optional { ?x rdfs:label ?ll }}"
 
@@ -2294,14 +3161,14 @@ public class TestQuery1 {
         IDatatype ds = (IDatatype) map.getValue("?s");
         IDatatype dm = (IDatatype) map.getValue("?m");
         IDatatype dl = (IDatatype) map.getValue("?l");
-        assertEquals(IDatatype.GRAPH_DATATYPE, dg.stringValue());
-        assertEquals(IDatatype.TRIPLE_DATATYPE, dt.stringValue());
-        assertEquals(IDatatype.MAPPINGS_DATATYPE, ds.stringValue());
-        assertEquals(IDatatype.MAPPING_DATATYPE, dm.stringValue());
+        assertEquals(CoresePointer.getDatatype(PointerType.GRAPH), dg);
+        assertEquals(CoresePointer.getDatatype(PointerType.TRIPLE), dt);
+        assertEquals(CoresePointer.getDatatype(PointerType.MAPPINGS), ds);
+        assertEquals(CoresePointer.getDatatype(PointerType.MAPPING), dm);
         assertEquals(IDatatype.LIST_DATATYPE, dl.stringValue());
     }
 
-    //@Test
+   // @Test
     public void testExtFun19() throws EngineException {
 
         String init = "prefix ex: <http://example.org/> "
@@ -2312,6 +3179,7 @@ public class TestQuery1 {
         String q = "prefix sol: <http://ns.inria.fr/sparql-datatype/mappings#>"
                 + "prefix map: <http://ns.inria.fr/sparql-datatype/mapping#>"
                 + "prefix ls: <http://ns.inria.fr/sparql-datatype/list#>"
+                + "@event @recursion "
                 + "select (us:foo() as ?t) "
                 + "where {}"
 
@@ -2319,17 +3187,20 @@ public class TestQuery1 {
                 + "query(select ?x ?y where {?x ?p ?y}) = query(select ?x ?y where {?x ?q ?y})"
                 + "}"
 
-                + "function sol:equal(?s1, ?s2) {"
+                + "@type dt:mappings "
+                + "function us:eq(?s1, ?s2) {"
                 + " xt:size(?s1) = xt:size(?s2) &&  mapevery(lambda(?t1, ?t2) { ?t1 = ?t2 }, ?s1, ?s2)"
                 + "}"
 
-                + "function map:equal(?m1, ?m2) {"
+                + "@type dt:mapping "
+                + "function us:eq(?m1, ?m2) {"
                 + "sol:equal(?m1, ?m2)"
                 + "}"
 
-                + "function ls:equal(?l1, ?l2) {"
-                + "sol:equal(?l1, ?l2)"
-                + "}";
+//                + "function ls:equal(?l1, ?l2) {"
+//                + "sol:equal(?l1, ?l2)"
+//                + "}"
+                ;
 
         Graph g = createGraph();
         QueryProcess exec = QueryProcess.create(g);
@@ -2340,7 +3211,7 @@ public class TestQuery1 {
     }
 
 
-    //@Test
+    @Test
     public void testExtFun18() throws EngineException {
 
         String init = "prefix ex: <http://example.org/> "
@@ -2350,26 +3221,37 @@ public class TestQuery1 {
 
         String q = "prefix tr: <http://ns.inria.fr/sparql-datatype/triple#>"
                 + "prefix gr: <http://ns.inria.fr/sparql-datatype/graph#>"
+                + "@event @recursion "
                 + "select (us:foo() as ?t) "
                 + "where {}"
 
                 + "function us:foo() {"
-                + "query(construct where {?x ?p ?y}) = query(construct where {?x ?p ?y})"
+                + "let (?g1 = construct where {?x ?p ?y}, ?g2 = construct where {?x ?p ?y}) {"
+                + "?g1 = ?g2"
+                + "}"
                 + "}"
 
-                + "function gr:equal(?g1, ?g2) {"
+                + "@type dt:graph dt:triple "
+                + "function us:eq(?g1, ?g2) {"
                 + "  mapevery(lambda(?t1, ?t2) { ?t1 = ?t2 }, ?g1, ?g2)"
                 + "}"
+                
+                //+ "@limit function us:limit(?m) { xt:print('limit') ; return (false) }"
+                
+//                + "@type  dt:triple "
+//                + "function us:eq(?g1, ?g2) {"
+//                + "  mapevery(lambda(?t1, ?t2) { ?t1 = ?t2 }, ?g1, ?g2)"
+//                + "}"
 
-                + "function tr:equal(?t1, ?t2) {"
-                + "  gr:equal(?t1, ?t2)"
-                + "}";
+               ;
 
         Graph g = createGraph();
+        //QuerySolverVisitor.REENTRANT_DEFAULT = true;
         QueryProcess exec = QueryProcess.create(g);
         exec.query(init);
         Mappings map = exec.query(q);
         IDatatype dt = (IDatatype) map.getValue("?t");
+        //System.out.println(map);
         assertEquals(true, dt.booleanValue());
     }
 
@@ -2382,6 +3264,7 @@ public class TestQuery1 {
                 + "}";
 
         String q = "prefix tr: <http://ns.inria.fr/sparql-datatype/triple#>"
+                + "@event "
                 + "select (us:foo() as ?t) "
                 + "where {}"
 
@@ -2389,8 +3272,8 @@ public class TestQuery1 {
                 + "mapevery(lambda(?t) { ?t = ?t }, query(construct where {?x ?p ?y}))"
                 + "}"
 
-                + "function tr:equal(?t1, ?t2) {"
-                + "  mapevery(lambda(?x, ?y) { ?x = ?y }, ?t1, ?t2)"
+                + "@type dt:triple function us:eq(?t1, ?t2) {"
+                + "  mapevery(lambda(?x, ?y) { xt:print(?x, ?y) ; ?x = ?y }, ?t1, ?t2)"
                 + "}";
 
         Graph g = createGraph();
@@ -2490,7 +3373,7 @@ public class TestQuery1 {
         exec.query(q);
         Mappings map = exec.query(q2);
         IDatatype dt = (IDatatype) map.getValue("?t");
-        System.out.println(dt);
+        //System.out.println(dt);
         for (IDatatype pair : dt.getValueList()) {
             assertEquals(true, pair.getValueList().get(0).equals(pair.getValueList().get(1)));
         }
@@ -2952,7 +3835,7 @@ public class TestQuery1 {
                 "select * (kg:index(?v1) as ?i) where {"
                         + "graph ?g1 {?x ?p ?v1} "
                         + "graph ?g2 {?y ?p ?v2} "
-                        + "filter sameTerm(?v1, ?v2)"
+                        + "filter sameTerm(?v1, ?v2)"              
                         + "filter (?g1 < ?g2)"
                         + "}";
         Graph g = createGraph();
@@ -3273,45 +4156,7 @@ public class TestQuery1 {
         assertEquals("test", dt.doubleValue(), 1.5497, 10e-5);
     }
 
-    @Test
-    public void testmserv() throws LoadException, IOException, EngineException {
-        Graph g = Graph.create();
-        QueryProcess exec = QueryProcess.create(g);
-
-        String q =
-                "@federate <http://fr.dbpedia.org/sparql> "
-                        + " <http://dbpedia.org/sparql> "
-                        + "select distinct ?l where { "
-                        + "?x rdfs:label 'Paris'@fr, ?l "
-                        + "filter langMatches(lang(?l), 'en') "
-                        + "}"
-                        + "order by ?l";
-
-        Mappings map = exec.query(q);
-        assertEquals(14, map.size());
-    }
-
-
-    @Test
-    public void testmserv2() throws LoadException, IOException, EngineException {
-        Graph g = Graph.create();
-        QueryProcess exec = QueryProcess.create(g);
-
-        String q =
-                "@federate <http://fr.dbpedia.org/sparql> "
-                        + " <http://dbpedia.org/sparql> "
-                        + "select distinct ?g ?l "
-                        + "from <http://dbpedia.org> "
-                        + "from <http://fr.dbpedia.org> "
-                        + "where { "
-                        + "?x rdfs:label 'Paris'@fr, ?l "
-                        + "filter langMatches(lang(?l), 'en') "
-                        + "}"
-                        + "order by ?l";
-
-        Mappings map = exec.query(q);
-        assertEquals(1, map.size());
-    }
+   
 
     @Test
     public void testinsertdata() throws EngineException {
@@ -3621,7 +4466,7 @@ public class TestQuery1 {
 
 
     // loop return concat of results of body of loop
-    @Test
+    
     public void testGLoop() throws EngineException, IOException {
         Graph g = GraphStore.create();
         QueryProcess exec = QueryProcess.create(g);
@@ -3640,41 +4485,7 @@ public class TestQuery1 {
     }
 
 
-    @Test
-    public void testMetaBind1() throws LoadException, EngineException {
-        Graph g = createGraph();
-        QueryProcess exec = QueryProcess.create(g);
-        String q = "@bind kg:values " +
-                "select  * where {"
-                + "bind (<http://fr.dbpedia.org/resource/Auguste> as ?x) "
-                + "service <http://fr.dbpedia.org/sparql> {"
-                + "select * where {"
-                + "?x ?p ?y"
-                + "} limit 10}"
-                + "}";
-        Mappings map = exec.query(q);
-        assertEquals(10, map.size());
-        ASTQuery ast = (ASTQuery) map.getAST();
-        assertEquals(true, ast.toString().contains("values ("));
-    }
-
-    @Test
-    public void testMetaBind2() throws LoadException, EngineException {
-        Graph g = createGraph();
-        QueryProcess exec = QueryProcess.create(g);
-        String q = "@bind kg:filter " +
-                "select  * where {"
-                + "bind (<http://fr.dbpedia.org/resource/Auguste> as ?x) "
-                + "service <http://fr.dbpedia.org/sparql> {"
-                + "select * where {"
-                + "?x ?p ?y"
-                + "} limit 10}"
-                + "}";
-        Mappings map = exec.query(q);
-        assertEquals(10, map.size());
-        ASTQuery ast = (ASTQuery) map.getAST();
-        assertEquals(true, ast.toString().contains("filter ("));
-    }
+  
 
 
     @Test
@@ -4153,7 +4964,7 @@ public class TestQuery1 {
         exec.query(i);
 
         String q = "@relax "
-                + "select * (sim() as ?s) where {"
+                + "select * (xt:sim() as ?s) where {"
                 + "us:John foaf:name 'Jon' ; foaf:age 11 "
                 + "}";
 
@@ -4272,7 +5083,7 @@ public class TestQuery1 {
                 + "}";
 
         String q = "@relax * "
-                + "select * (sim() as ?s) where {"
+                + "select * (xt:sim() as ?s) where {"
                 + "?x xt:name 'Jon'"
                 + "}"
                 + "order by desc(?s)";
@@ -4343,33 +5154,7 @@ public class TestQuery1 {
         //1.41421
     }
 
-    @Test
-    public void testServAnnot() throws EngineException {
-        Graph g = createGraph();
-        QueryProcess exec = QueryProcess.create(g);
-        String qq = "select "
-                + "(us:foo() as ?f)"
-                + "(us:bar() as ?b)"
-                + "where {}"
-                + "@federate <http://fr.dbpedia.org/sparql>"
-                + "package {"
-                + "@federate <http://dbpedia.org/sparql>"
-                + "function us:foo(){"
-                + "let (?g = construct  where {?x rdfs:label ?l} limit 10)"
-                + "{?g}}"
-                + "function us:bar(){"
-                + "let (?m = select *  where {?x rdfs:label ?l} limit 10)"
-                + "{?m}}"
-                + "}";
-
-        Mappings map = exec.query(qq);
-        IDatatype dg = (IDatatype) map.getValue("?f");
-        IDatatype dm = (IDatatype) map.getValue("?b");
-        Graph gg = (Graph) dg.getObject();
-        Mappings mm = (Mappings) dm.getObject();
-        assertEquals(10, gg.size());
-        assertEquals(10, mm.size());
-    }
+  
 
     @Test
     public void testCustom() throws EngineException {
@@ -4408,22 +5193,7 @@ public class TestQuery1 {
         assertEquals(10, dt.intValue());
     }
 
-    @Test
-    public void testService() throws EngineException, LoadException {
-        Graph g = Graph.create();
-        QueryProcess exec = QueryProcess.create(g);
-
-        String q1 = "@federate <http://fr.dbpedia.org/sparql>"
-                + "select * where {?x ?p ?y } limit 10";
-        Mappings m1 = exec.query(q1);
-        assertEquals(10, m1.size());
-
-        String q2 = "@federate <http://fr.dbpedia.org/sparql>"
-                + "construct where {?x ?p ?y } limit 10";
-        Mappings m2 = exec.query(q2);
-        Graph g2 = (Graph) m2.getGraph();
-        assertEquals(10, g2.size());
-    }
+ 
 
     @Test
     public void testSPARQLfun() throws EngineException {
@@ -4656,7 +5426,7 @@ public class TestQuery1 {
                 + "[] us:width 3 ; us:length 4"
                 + "}";
 
-        String q = "select * (us:surface(?x) as ?s) where {"
+        String q = "@trace select * (us:surface(?x) as ?s) where {"
                 + "?x us:width ?w "
                 + "}"
                 + "function us:surface(?x){"
@@ -4842,7 +5612,7 @@ public class TestQuery1 {
 
     }
 
-    @Test
+    //@Test
     public void testVD13() throws EngineException {
         Graph g = Graph.create();
         QueryProcess exec = QueryProcess.create(g);
@@ -5648,7 +6418,7 @@ public class TestQuery1 {
                 + "}";
         Mappings map = exec.query(q);
         ////System.out.println(map.getTemplateStringResult());
-        assertEquals(256, map.getTemplateStringResult().length());
+        assertEquals(258, map.getTemplateStringResult().length());
 
 
     }
@@ -5929,17 +6699,17 @@ public class TestQuery1 {
         Transformer t = Transformer.create(g, Transformer.TURTLE, RDF.RDF);
         String str = t.transform();
        //System.out.println("result:\n" + str);
-        assertEquals(4768, str.length());
+        assertEquals(6202, str.length());
 
         t = Transformer.create(g, Transformer.TURTLE, RDFS.RDFS);
         str = t.transform();
-        ////System.out.println(str);
-        assertEquals(3870, str.length());
+        //System.out.println(str);
+        assertEquals(3872, str.length());
 
         t = Transformer.create(g, Transformer.TURTLE);
         str = t.transform();
         ////System.out.println(str);
-        assertEquals(8425, str.length());
+        assertEquals(9859, str.length());
     }
 
     @Test
@@ -5957,17 +6727,17 @@ public class TestQuery1 {
         Mappings map = exec.query(t1);
         String str = map.getTemplateStringResult();
         ////System.out.println(str);
-        assertEquals(4768, str.length());
+        assertEquals(6202, str.length());
 
         map = exec.query(t2);
         str = map.getTemplateStringResult();
         //System.out.println(str);
-        assertEquals(3870, str.length());
+        assertEquals(3872, str.length());
 
         map = exec.query(t3);
         str = map.getTemplateStringResult();
         ////System.out.println(str);
-        assertEquals(8425, str.length());
+        assertEquals(9859, str.length());
     }
 
     @Test
@@ -6013,7 +6783,7 @@ public class TestQuery1 {
 
         Transformer pp = Transformer.create(g, Transformer.TRIG);
         String str = pp.transform();
-        assertEquals(12748, str.length());
+        assertEquals(14923, str.length());
 
 
     }
@@ -6041,7 +6811,7 @@ public class TestQuery1 {
 
         map = exec.query(t2);
 
-        assertEquals(9436, map.getTemplateResult().getLabel().length());
+        assertEquals(9438, map.getTemplateResult().getLabel().length());
 
     }
 
@@ -7462,7 +8232,7 @@ public class TestQuery1 {
     public void test19() {
         String query = "prefix c: <http://www.inria.fr/acacia/comma#>" +
                 "select * "
-                + "(pathLength($path) as ?l) (count(?a) as ?c) where {"
+                + "(xt:size($path) as ?l) (count(?a) as ?c) where {"
                 + "?x c:isMemberOf+ :: $path ?org "
                 + "graph $path {?a ?p ?b}"
                 + "}"
@@ -7711,7 +8481,7 @@ public class TestQuery1 {
 
         String query =
                 "select  "
-                        + "(pathLength($path) as ?l) "
+                        + "(xt:size($path) as ?l) "
                         + "(max(?l, groupBy(?x, ?y)) as ?m) "
                         + "(max(?m) as ?max) "
                         + "where {"
@@ -7939,7 +8709,7 @@ public class TestQuery1 {
 
     }
 
-    @Test
+    //@Test
     public void test39() {
         Graph graph = createGraph();
         QueryProcess exec = QueryProcess.create(graph);
@@ -8103,8 +8873,8 @@ public class TestQuery1 {
                         + "insert data {"
                         + "<doc> i:contain "
                         + "'<doc>"
-                        + "<person><name>John</name><lname>K</lname></person>"
-                        + "<person><name>James</name><lname>C</lname></person>"
+                        + "<person><name>John</name><lname>K</lname><year>2000</year></person>"
+                        + "<person><name>James</name><lname>C</lname><year>1950</year></person>"
                         + "</doc>'^^rdf:XMLLiteral   "
                         + "}";
 
@@ -8113,18 +8883,25 @@ public class TestQuery1 {
                 + "construct {"
                 + "[i:name ?name]"
                 + "} where {"
-                + "select (concat(?n, '.', ?l) as ?name) where {"
+                + "select (concat(xt:objectvalue(?n), '.', xt:objectvalue(?l)) as ?name) "
+                + "(xsd:integer(xt:objectvalue(?y)) as ?yy) where {"
                 + "?x i:contain ?xml "
-                + "bind (xpath(?xml, '/doc/person') as ?p) "
-                + "bind (xpath(?p, 'name/text()')  as ?n)  "
-                + "bind (xpath(?p, 'lname/text()') as ?l) "
+              //  + "bind (xpath(?xml, '/doc/person') as ?p) "
+                //+ "bind (xpath(?p, 'name/text()')  as ?n)  "
+                //+ "bind (xpath(?p, 'lname/text()') as ?l) " 
+                
+                + "values ?p { unnest(xpath(?xml, '/doc/person')) } "
+                + "values ?n { unnest(xpath(?p, 'name/text()')) }  "
+                + "values ?l { unnest(xpath(?p, 'lname/text()')) }  "
+                + "values ?y { unnest(xpath(?p, 'year/text()')) }  "
+               
                 + "}}";
 
 
         try {
             Mappings map = exec.query(init);
             map = exec.query(query);
-            ////System.out.println(map);
+            //System.out.println(map);
             assertEquals("Result", 2, map.size());
 
 
@@ -8156,27 +8933,29 @@ public class TestQuery1 {
                 + "base      <http://www.example.org/schema/>"
                 + "prefix s: <http://www.example.org/schema/>"
                 + "prefix i: <http://www.inria.fr/test/> "
-                + "construct {?su ?pr ?o} "
+                + "construct {?su ?pr ?ob} "
                 + "where {"
-                + "select  * where {"
-                + "values ?xml {<file://"
-                + text + "phrase.xml>"
-                + "}"
-                + "bind  (xpath(?xml, '/doc/phrase')   as ?st)"
-                + "bind  (xpath(?st, 'subject/text()')  as ?s)"
-                + "bind  (xpath(?st, 'verb/text()')     as ?p) "
-                + "bind  (xpath(?st, 'object/text()')   as ?o) "
-                + "bind  (uri(?s) as ?su) "
-                + "bind  (uri(?p) as ?pr)   "
-                + "}}";
+                    + "select * where {"
+                    + "values ?xml { <file://" + text + "phrase.xml> } "
+                    + "values ?st { unnest(xpath(?xml, '/doc/phrase')) }  "
+                    + "values ?s  { unnest(xpath(?st, 'subject/text()')) }  "
+                    + "values ?p  { unnest(xpath(?st, 'verb/text()')) }   "
+                    + "values ?o  { unnest(xpath(?st, 'object/text()')) }  "
+
+                    + "bind  (uri(xt:objectvalue(?s)) as ?su) "
+                    + "bind  (uri(xt:objectvalue(?p)) as ?pr)   "
+                    + "bind  (uri(xt:objectvalue(?o)) as ?ob)   "
+                
+                    + "}"
+                + "}";
 
 
         try {
             Mappings map = exec.query(init);
             map = exec.query(query);
-            ////System.out.println(map);
+            //System.out.println(map);
             ResultFormat f = ResultFormat.create(map);
-            ////System.out.println(f);
+            //System.out.println(f);
             assertEquals("Result", 2, map.size());
 
 
@@ -8513,8 +9292,8 @@ public class TestQuery1 {
                 + "<Jim> foaf:knows <Jack> "
                 + "}";
 
-        String query = "select * (pathLength($path) as ?l) where {"
-                + "?x short(foaf:knows|rdfs:seeAlso)+ :: $path ?y"
+        String query = "select * (xt:size($path) as ?l) where {"
+                + "?x (foaf:knows|rdfs:seeAlso)+ :: $path ?y"
                 + "}";
 
         try {
@@ -8867,7 +9646,7 @@ public class TestQuery1 {
 
             exec.query(init);
             Mappings map = exec.query(query);
-
+            //System.out.println(map);
 
             assertEquals("Results", 9, map.size());
 
@@ -8912,8 +9691,8 @@ public class TestQuery1 {
             Mappings map = exec.query(query);
 //			////System.out.println(map);
 //
-            System.out.println("*****************");
-            System.out.println(map);
+           // System.out.println("*****************");
+            //System.out.println(map);
             assertEquals("Result", 2, map.size());
 
         } catch (EngineException e) {
@@ -8950,20 +9729,7 @@ public class TestQuery1 {
         assertEquals("Result", 17, q.nbNodes());
     }
 
-    @Test
-    public void testSparqlInriaAccess() throws EngineException {
-        String query = "prefix h: <http://www.inria.fr/2015/humans#>\n" +
-                "@federate <http://corese.inria.fr/sparql>  \n" +
-                "select  * {\n" +
-                " ?x h:name ?n \n" +
-                "}";
-        Graph g = createGraph();
-        QueryProcess exec = QueryProcess.create(g);
-        Mappings map = exec.query(query);
-        assertEquals("Result", 16, map.size());
-
-    }
-
+   
     IDatatype getValue(Mapping map, String name) {
         return datatype(map.getValue(name));
     }

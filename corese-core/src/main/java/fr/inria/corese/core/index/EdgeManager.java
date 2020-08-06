@@ -11,6 +11,8 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import fr.inria.corese.kgram.api.core.Edge;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
+import java.util.HashMap;
 
 /**
  * Edge List of a predicate
@@ -40,6 +42,7 @@ public class EdgeManager implements Iterable<Edge> {
     ArrayList<Edge> list;
     Comparator<Edge> comp;
     int index = 0, other = 0, next = IGRAPH;
+    int meta = 2;
     boolean indexedByNode = false;
 
     EdgeManager(EdgeManagerIndexer indexer, Node p, int i) {
@@ -87,24 +90,165 @@ public class EdgeManager implements Iterable<Edge> {
         ArrayList<Edge> l = new ArrayList<>();
         Edge pred = null;
         int count = 0, ind = 0;
-        for (Edge ent : list) {          
+        for (Edge edge : list) {
             if (pred == null) {
-                l.add(ent);
-                mgr.add(ent.getNode(index), predicate, ind);
+                l.add(edge);
+                mgr.add(edge.getNode(index), predicate, ind);
                 ind++;
-            } else if (comp.compare(ent, pred) != 0) {               
-                l.add(ent);
-                if (ent.getNode(index) != pred.getNode(index)) {
-                   mgr.add(ent.getNode(index), predicate, ind); 
+            } else if (equalExceptMetadata(pred, edge)) {
+                count++;
+            } else {
+                l.add(edge);
+                if (edge.getNode(index) != pred.getNode(index)) {
+                    mgr.add(edge.getNode(index), predicate, ind);
                 }
                 ind++;
-            } else {
-                count++;
             }
-            pred = ent;
+            pred = edge;
         }
         list = l;
+        if (count > 0) {
+            graph.setSize(graph.size() - count);
+        }
         return count;
+    }
+    
+    /**
+     * return true when edges are equal, except if e2 has metadata
+     */
+    boolean equalExceptMetadata(Edge e1, Edge e2) {
+        if (comp.compare(e1, e2) == 0) {
+            if (graph.isEdgeMetadata() && e2.getNode(meta) != null) {
+                indexer.setLoopMetadata(true);
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+    
+//        return comp.compare(e1, e2) == 0
+//                && !(graph.isEdgeMetadata() && e2.getNode(meta) != null);
+      
+    /**
+     * Context: RDF*
+     * Merge duplicate triples, keep one metadata node
+     * PRAGMA: index = 0, list is sorted and reduced
+     */
+    void metadata() {
+        ArrayList<Edge> l = new ArrayList<>();
+        Edge e1 = null;
+        int count = 0;
+        for (Edge e2 : list) { 
+            if (e1 == null) {
+                e1 = e2;
+                l.add(e2);
+            }
+            else if (compare3(e1, e2) == 0){
+                //  g s p o t1 vs g s p o t2
+                //  keep g s p o t1
+                if (e1.getNode(meta) == null) { 
+                    e1 = e2;
+                    l.set(l.size()-1, e2);
+                    count ++;
+                }  
+                else {
+                    merge(e1, e2);
+                    count ++;
+                }
+            }
+            else if (Graph.TRIPLE_UNIQUE_NAME && compare2(e1, e2) == 0) {
+                // g1 s p o t1 vs g2 s p o t2
+                // replace by 
+                // g1 s p o t1 vs g2 s p o t1
+                name(e1, e2, l);
+                e1 = l.get(l.size()-1);
+            }
+            else {
+                e1 = e2;
+                l.add(e2);
+            }
+        } 
+        list = l;
+        if (count > 0) {
+            graph.setSize(graph.size() - count);
+        }
+    }
+      
+    /** 
+     * g1 s p o t1 . g2 s p o t2
+       replace by 
+       g1 s p o t1 . g2 s p o t1
+    */
+    void name(Edge e1, Edge e2, List<Edge> list) {
+        if (e1.getNode(meta) != null) {
+            if (e2.getNode(meta) != null) {
+                merge(e1, e2);
+                e2.setNode(meta, e1.getNode(meta));
+            } else {
+                e2 = graph.getEdgeFactory().name(e2, predicate, e1.getNode(meta));
+            }
+        } else if (e2.getNode(meta) != null) {
+            e1 = graph.getEdgeFactory().name(e1, predicate, e2.getNode(meta));
+            list.set(list.size() - 1, e1);
+        } else {
+            // safety in case there is a third one with a name
+            e1 = graph.getEdgeFactory().name(e1, predicate, graph.addTripleName());
+            e2 = graph.getEdgeFactory().name(e2, predicate, e1.getNode(meta));
+            list.set(list.size() - 1, e1);
+        }
+        list.add(e2);
+    }
+     
+    // keep only one metadata node (e1)
+    void merge(Edge e1, Edge e2) {
+        indexer.replace(e2.getNode(meta), e1.getNode(meta));
+    }
+    
+    /**
+     * Replace subject/object by target node in map if any
+     * In this case, these nodes are triple ID metadata
+     */
+    void replace(HashMap<Node, Node> map) {
+        boolean b = false;
+        for (Edge e : list) {
+            for (int i = 0; i < 2; i++) {
+                Node n = map.get(e.getNode(i));
+                if (n != null) {
+                    b = true;
+                    e.setNode(i, n);
+                }
+            }
+        }
+        if (b) {
+           complete();
+        }
+    }
+      
+    void complete() {
+        sort();
+        reduce(indexer.getNodeManager());
+    }
+    
+    int compare3(Edge e1, Edge e2) {
+        int res = compareNodeTerm(e1.getNode(index), e2.getNode(index));
+        if (res == 0) {
+            res = compareNodeTerm(e1.getNode(other), e2.getNode(other));
+        }
+        if (res == 0) {
+            res = compareNodeTerm(e1.getNode(IGRAPH), e2.getNode(IGRAPH));
+        }
+        return res;
+    }
+    
+    int compare2(Edge e1, Edge e2) {
+        for (int i = 0; i < 2; i++) {
+            int res = compareNodeTerm(e1.getNode(i), e2.getNode(i));
+            if (res != 0) {
+                return res;
+            }
+        }
+        return 0;
     }
     
     /**
@@ -203,6 +347,21 @@ public class EdgeManager implements Iterable<Edge> {
      * already exists
      */
     int getPlace(Edge edge) {
+        int i = find(edge);
+
+        if (i >= list.size()) {
+            i = list.size();
+        } else if (index == 0) {
+            if (equalExceptMetadata(list.get(i), edge)) {
+                // eliminate duplicate at load time for index 0                   
+                return -1;
+            }
+        }
+
+        return i;
+    }
+    
+    int getPlace2(Edge edge) {
         int i = find(edge);
 
         if (i >= list.size()) {
@@ -583,7 +742,7 @@ public class EdgeManager implements Iterable<Edge> {
                     return res;
                 }
                 
-                if (o1.nbNode() == 2 && o2.nbNode() == 2 || graph.isMetadata()) {
+                if (o1.nbNode() == 2 && o2.nbNode() == 2 || graph.isMetadataNode()) {
                     // compare third Node
                     res = compareNodeTerm(o1.getNode(next), o2.getNode(next));
                     return res;
