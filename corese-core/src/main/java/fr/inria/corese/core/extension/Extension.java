@@ -20,9 +20,12 @@ import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.ASTQuery;
+import fr.inria.corese.sparql.triple.parser.Access.Feature;
 import java.io.IOException;
+import java.util.Enumeration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.ws.rs.core.Response;
 
 /**
  * Generic Java Extension function public class
@@ -35,7 +38,67 @@ import java.util.logging.Logger;
  */
 public class Extension extends Core {
     
+    static Extension singleton;
     
+    static {
+        singleton = new Extension();
+    }
+    
+//    public static Extension singleton() {
+//        return singleton;
+//    }
+       
+    public IDatatype parse(IDatatype dt) {
+        if (dt.isURI()) {
+            return imports(dt, false);
+        }
+        else {
+            ASTQuery ast = parseQuery(dt.getLabel());
+            if (ast == null) {
+                return null;
+            }
+            return DatatypeMap.createObject(ast);
+        }
+    }
+   
+    public IDatatype imports(IDatatype dt, IDatatype pub) {
+        return imports(dt, pub.booleanValue());
+    }
+    
+    public IDatatype imports(IDatatype dt, boolean pub) {
+        QueryProcess exec = QueryProcess.create();
+        try {
+            boolean b = exec.imports(dt.getLabel(), pub);
+            return DatatypeMap.newInstance(b);
+        }
+        catch (EngineException ex) {
+            Logger.getLogger(Extension.class.getName()).log(Level.SEVERE, null, ex);
+            return DatatypeMap.FALSE;
+        }
+    }
+    
+    ASTQuery parseQuery(String str) {
+        QueryProcess exec = QueryProcess.create();
+        try {
+            Query q = exec.compile(str);
+            return (ASTQuery) q.getAST();
+        } catch (EngineException ex) {
+            Logger.getLogger(Extension.class.getName()).log(Level.SEVERE, null, ex);
+            return null;
+        }
+    }
+    
+    
+    public IDatatype list(IDatatype dt) {
+        if (dt.getObject() != null && dt.getObject() instanceof Enumeration) {
+            return DatatypeMap.newList((Enumeration)dt.getObject());
+        }
+        if (dt.getObject() != null && dt.getObject() instanceof Object[]) {
+            return DatatypeMap.newList((Object[])dt.getObject());
+        }
+        return DatatypeMap.list();
+    }  
+          
     public IDatatype allEntailment(IDatatype dt) {
         Construct.setAllEntailment(dt.booleanValue());
         return dt;

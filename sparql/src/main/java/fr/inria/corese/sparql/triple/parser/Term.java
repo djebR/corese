@@ -21,6 +21,9 @@ import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Producer;
+import fr.inria.corese.sparql.exceptions.EngineException;
+import fr.inria.corese.sparql.exceptions.SafetyException;
+import fr.inria.corese.sparql.triple.parser.Access.Feature;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -180,7 +183,7 @@ public class Term extends Expression {
     public static Term function(String name, String longName) {
         //Term fun = new Term(name); 
         Term fun = newFunction(name, longName);
-        fun.isFunction = true;
+        fun.setFunction(true);
         return fun;
     }
 
@@ -398,6 +401,7 @@ public class Term extends Expression {
             case ExprType.SEQUENCE:
                 return new Sequence(name);
             case ExprType.SET:
+            case ExprType.STATIC:
                 return new SetFunction(name);
 
             case ExprType.LENGTH:
@@ -451,7 +455,8 @@ public class Term extends Expression {
 
             case ExprType.DEBUG:
             case ExprType.SLICE:
-            case ExprType.ENV:    
+            case ExprType.ENV:   
+            case ExprType.XT_STACK:
             case ExprType.XT_RESULT:    
             case ExprType.XT_VISITOR:    
             case ExprType.XT_DATATYPE:    
@@ -547,6 +552,7 @@ public class Term extends Expression {
             case ExprType.LOAD:
             case ExprType.WRITE:
             case ExprType.READ:
+            case ExprType.XT_HTTP_GET:
             case ExprType.XT_TUNE:
             case ExprType.SIM:                
             case ExprType.APP_SIM:                
@@ -1687,7 +1693,7 @@ public class Term extends Expression {
 
     // Exp
     @Override
-    public Expression prepare(ASTQuery ast) {
+    public Expression prepare(ASTQuery ast) throws EngineException {
         if (proc != null) {
             return this;
         }
@@ -1695,6 +1701,8 @@ public class Term extends Expression {
         //proc = new Processor(this);
         proc = processor;
         proc.type(this, ast);
+        
+        //checkAccessLevel(ast);
 
         int i = 0;
         for (Expression exp : getArgs()) {
@@ -1711,6 +1719,40 @@ public class Term extends Expression {
         }
         typecheck(ast);
         return this;
+    }
+    
+    void checkAccessLevel(ASTQuery ast) throws EngineException {
+        switch (oper()) {
+            case ExprType.READ:
+            case ExprType.WRITE:
+            case ExprType.XT_HTTP_GET:
+                checkFeature(Feature.READ_WRITE, ast, "Read Write unauthorized");
+                break;
+                
+            case ExprType.JAVACALL:
+            case ExprType.DSCALL:
+            case ExprType.EXTERNAL:
+                checkFeature(Feature.JAVA_FUNCTION, ast, "Java function unauthorized");               
+                break;
+                
+//            case ExprType.APPLY_TEMPLATES_WITH:
+//            case ExprType.CALL_TEMPLATE_WITH: 
+                
+            case ExprType.KGRAM:
+                checkFeature(Feature.SPARQL, ast, "SPARQL query unauthorized");               
+                break;
+                
+        }
+    }
+    
+    void checkFeature(Feature feat, ASTQuery ast, String mess) throws EngineException  {
+        if (reject(feat, ast)) {
+            throw new SafetyException(mess);
+        }
+    }
+    
+    boolean reject(Feature feat, ASTQuery ast) {
+        return Access.reject(feat, ast.getLevel());
     }
 
     @Override
@@ -1855,7 +1897,7 @@ public class Term extends Expression {
     }
 
     @Override
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         return eval.function((Expr) this, env, p);
     }
 }

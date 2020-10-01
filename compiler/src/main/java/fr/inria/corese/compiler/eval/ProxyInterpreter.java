@@ -18,7 +18,6 @@ import fr.inria.corese.sparql.triple.parser.Processor;
 import fr.inria.corese.sparql.triple.parser.Term;
 import fr.inria.corese.compiler.api.ProxyPlugin;
 import fr.inria.corese.kgram.api.core.Expr;
-import fr.inria.corese.kgram.api.core.ExprLabel;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.query.Environment;
@@ -41,6 +40,9 @@ import java.util.List;
 import fr.inria.corese.kgram.api.core.Edge;
 import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.kgram.core.Eval;
+import fr.inria.corese.sparql.exceptions.EngineException;
+import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.triple.parser.Context;
 
 /**
  * Implements evaluator of operators & functions of filter language with
@@ -97,7 +99,7 @@ public class ProxyInterpreter implements Proxy,  ExprType {
     }
 
     @Override
-    public Evaluator getEvaluator() {
+    public Interpreter getEvaluator() {
         return eval;
     }
     
@@ -1687,14 +1689,15 @@ public class ProxyInterpreter implements Proxy,  ExprType {
         return FALSE;
     }
 
-    @Override
-    public Expr createFunction(String name, List<Object> args, Environment env) {
+    //@Override
+    public Expr createFunction(String name, List<Object> args, Environment env) 
+    throws EngineException{
         return null;    
     }
     
-    @Override
-    public Expr getDefine(Expr exp, Environment env, String name, int n){
-        return plugin.getDefine(exp, env, name, n);
+   // @Override
+    public Expr getDefine(Expr exp, Environment env, String name, int n) throws EngineException {
+        return castPlugin.getDefine(exp, env, name, n);
     }
 
     @Override
@@ -1727,9 +1730,13 @@ public class ProxyInterpreter implements Proxy,  ExprType {
     private IDatatype sequence(Expr exp, Environment env, Producer p) {
         IDatatype res = TRUE;
         for (Expr e : exp.getExpList()){
-            res =  eval.eval(e, env, p);
-            if (isReturn(res)){
-                return res;
+            try {
+                res =  eval.eval(e, env, p);
+                if (isReturn(res)){
+                    return res;
+                }
+            } catch (EngineException ex) {
+                return null;
             }
         }
         return res;
@@ -2047,6 +2054,14 @@ public class ProxyInterpreter implements Proxy,  ExprType {
      */
     public Environment getEnvironment() {
         return environment;
+    }
+    
+    public Context getContext() {
+        return ((Interpreter)getEval().getEvaluator()).getContext(getEnvironment(), getProducer());
+    }
+    
+    public boolean reject(Access.Feature feature) {
+        return Access.reject(feature, getContext());
     }
     
     public Eval getEval() {

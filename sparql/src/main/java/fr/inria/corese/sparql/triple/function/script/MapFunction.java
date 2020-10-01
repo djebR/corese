@@ -11,6 +11,7 @@ import static fr.inria.corese.kgram.api.core.ExprType.MAPFINDLIST;
 import static fr.inria.corese.kgram.api.core.ExprType.MAPLIST;
 import static fr.inria.corese.kgram.api.core.ExprType.MAPMERGE;
 import fr.inria.corese.kgram.api.query.Environment;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.api.query.Producer;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,13 +31,13 @@ public class MapFunction extends Funcall {
     }
     
     //@Override
-    public IDatatype evalnew(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype evalnew(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         IDatatype name    = getBasicArg(0).eval(eval, b, env, p);
         IDatatype[] param = evalArguments(eval, b, env, p, 1);
         if (name == null || param == null) {
             return null;
         }
-        Function function = getFunction(eval, env, name, param.length);
+        Function function = getFunction(eval, b, env, p, name, param.length);
         if (function == null) {
             return null;
         }
@@ -116,13 +117,13 @@ public class MapFunction extends Funcall {
     }
     
     //@Override
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         IDatatype name    = getBasicArg(0).eval(eval, b, env, p);
         IDatatype[] param = evalArguments(eval, b, env, p, 1);
         if (name == null || param == null) {
             return null;
         }
-        Function function = getFunction(eval, env, name, param.length);
+        Function function = getFunction(eval, b, env, p, name, param.length);
         if (function == null) {
             return null;
         }

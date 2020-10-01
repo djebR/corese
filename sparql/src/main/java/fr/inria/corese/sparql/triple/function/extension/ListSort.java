@@ -6,11 +6,14 @@ import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.kgram.api.query.Environment;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.kgram.core.Mappings;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.function.script.Funcall;
 import fr.inria.corese.sparql.triple.function.script.Function;
 import java.util.List;
+import java.util.logging.Level;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,14 +33,21 @@ public class ListSort extends Funcall {
     }
 
     @Override
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         IDatatype list = getBasicArg(0).eval(eval, b, env, p);
         if (list == null) {
             return null;
         }
         if (arity() == 2) {
             IDatatype funName = getBasicArg(1).eval(eval, b, env, p);
-            Function function = (funName == null) ? null : (Function) eval.getDefineGenerate(this, env, funName.stringValue(), 2);
+            Function function;
+            try {
+                function = (funName == null) ? null : 
+                        (Function) eval.getDefineGenerate(this, env, funName.stringValue(), 2);
+            } catch (EngineException ex) {
+                log(ex.getMessage());
+                return null;
+            }
             if (function == null) {
                 return DatatypeMap.sort(list);
             }
@@ -46,10 +56,15 @@ public class ListSort extends Funcall {
         return DatatypeMap.sort(list);
     }
     
-    public IDatatype sort(Computer eval, Binding b, Environment env, Producer p, Function function, IDatatype dt) {             
+    public IDatatype sort(Computer eval, Binding b, Environment env, Producer p, Function function, IDatatype dt)  {             
         List<IDatatype> l = dt.getValueList();
         l.sort((IDatatype dt1, IDatatype dt2) -> {
-            IDatatype res = call(eval, b, env, p, function, dt1, dt2);
+            IDatatype res = null;
+            try {
+                res = call(eval, b, env, p, function, dt1, dt2);
+            } catch (EngineException ex) {
+                
+            }
             if (res == null) {
                 logger.error(String.format("sort error: %s %s %s" , dt1 , dt2, function));
                 return dt1.compareTo(dt2);

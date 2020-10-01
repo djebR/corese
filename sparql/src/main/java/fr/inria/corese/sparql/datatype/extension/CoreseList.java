@@ -1,9 +1,10 @@
-package fr.inria.corese.sparql.datatype;
+package fr.inria.corese.sparql.datatype.extension;
 
 import java.util.List;
 
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.api.IDatatypeList;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.sparql.exceptions.CoreseDatatypeException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,10 +29,8 @@ public class CoreseList extends CoreseExtension implements IDatatypeList {
 
     public CoreseList(IDatatype[] dt) {
         super(SEED + count++);
-        list = new ArrayList<IDatatype>(dt.length);
-        for (IDatatype val : dt) {
-            list.add(val);
-        }
+        list = new ArrayList<>(dt.length);
+        list.addAll(Arrays.asList(dt));
     }
 
     public CoreseList(List<IDatatype> vec) {
@@ -73,7 +72,7 @@ public class CoreseList extends CoreseExtension implements IDatatypeList {
         StringBuffer sb = new StringBuffer();
         sb.append("\"");
         getContent(sb);
-        sb.append("\"^^").append(nsm.toPrefix(getDatatypeURI()));
+        sb.append("\"^^").append(nsm().toPrefix(getDatatypeURI()));
         return sb.toString();
     }
 
@@ -411,6 +410,7 @@ public class CoreseList extends CoreseExtension implements IDatatypeList {
         return list.contains(elem) ? TRUE : FALSE;
     }
     
+    // because list has its own compareTo (see above)
     @Override
     public int mapCompareTo(IDatatype dt) {
         if (dt.isList()) {

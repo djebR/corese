@@ -15,6 +15,7 @@ import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.sparql.api.Computer;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.function.script.Funcall;
 import fr.inria.corese.sparql.triple.function.script.Function;
 import fr.inria.corese.sparql.triple.function.term.Binding;
@@ -24,6 +25,7 @@ import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.logging.Level;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,6 +101,18 @@ public class QuerySolverVisitorBasic extends PointerObject implements ProcessVis
     public static final String INSERT   = "@insert";
     public static final String DELETE   = "@delete";
     public static final String UPDATE   = "@update";
+    public static final int    UPDATE_ARITY   = 3;
+    
+    
+    public static final String INIT_PARAM      = "@initParam";
+    public static final String INIT_SERVER     = "@initServer";
+    public static final String BEFORE_REQUEST  = "@beforeRequest";
+    public static final String AFTER_REQUEST   = "@afterRequest";
+
+    public static final String BEFORE_TRANSFORMER  = "@beforeTransformer";
+    public static final String AFTER_TRANSFORMER   = "@afterTransformer";
+    public static final String BEFORE_WORKFLOW     = "@beforeWorkflow";
+    public static final String AFTER_WORKFLOW      = "@afterWorkflow";  
     
     static final String USER = NSManager.USER;
     static final String PRODUCE_METHOD = USER + "produce";
@@ -110,6 +124,9 @@ public class QuerySolverVisitorBasic extends PointerObject implements ProcessVis
         BGP, JOIN, OPTIONAL, MINUS, UNION, FILTER, SELECT, SERVICE, QUERY, GRAPH, 
         AGGREGATE, HAVING, FUNCTION, ORDERBY, DISTINCT
     };
+    
+    private static boolean event = true;
+    
     private boolean active = false;
     private boolean reentrant = REENTRANT_DEFAULT;
     boolean select = false;
@@ -124,12 +141,14 @@ public class QuerySolverVisitorBasic extends PointerObject implements ProcessVis
     HashMap <Environment, IDatatype> distinct;
     QuerySolverOverload overload;
   
-    QuerySolverVisitorBasic() {}
-    
-    public QuerySolverVisitorBasic(Eval e) {
-        eval = e;
+    public QuerySolverVisitorBasic() {
         distinct = new HashMap<>();
         overload = new QuerySolverOverload(this);
+    }
+    
+    public QuerySolverVisitorBasic(Eval e) {
+        this();
+        eval = e;  
     }
 
     @Override
@@ -273,8 +292,12 @@ public class QuerySolverVisitorBasic extends PointerObject implements ProcessVis
      * set Visitor as inactive during function call to prevent loop and also in case where
      * function execute a query (which would trigger Visitor recursively)
      */
+    public IDatatype callback(String metadata, IDatatype[] param) {
+        return callback(getEval(), metadata, param);
+    }
+    
     public IDatatype callback(Eval ev, String metadata, IDatatype[] param) {
-        if (isRunning() || ! accept(metadata)) {
+        if (isRunning() || ! isEvent() || ! accept(metadata)) {
             return null;
         }
         trace(ev, metadata, param);
@@ -360,7 +383,12 @@ public class QuerySolverVisitorBasic extends PointerObject implements ProcessVis
     }
     
     IDatatype call(Function fun, IDatatype[] param, Evaluator eval, Environment env, Producer p) {
-        return new Funcall(fun.getFunction().getLabel()).call((Computer) eval, (Binding) env.getBind(), env, p, fun, param);
+        try {
+            return new Funcall(fun.getFunction().getLabel()).call((Computer) eval, (Binding) env.getBind(), env, p, fun, param);
+        } catch (EngineException ex) {
+            logger.error(ex.getMessage());
+            return null;
+        }
     }
 
 
@@ -505,6 +533,19 @@ public class QuerySolverVisitorBasic extends PointerObject implements ProcessVis
     public void setEval(Eval eval) {
         this.eval = eval;
     }
-    
-   
+
+    /**
+     * @return the event
+     */
+    public static boolean isEvent() {
+        return event;
+    }
+
+    /**
+     * @param aEvent the event to set
+     */
+    public static void setEvent(boolean aEvent) {
+        event = aEvent;
+    }
+
 }

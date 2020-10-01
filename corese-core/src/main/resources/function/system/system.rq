@@ -1,6 +1,39 @@
 prefix gui: <function://fr.inria.corese.gui.core.Callback>
+prefix ag:  <function://fr.inria.corese.core.extension.Agent>
 
 @public {
+
+function xt:httpget(q) {
+    fun:httpget(q)
+}
+
+# return AST of query OR parse function URI
+function xt:parse(q) {
+    fun:parse(q)
+}
+
+function xt:import(url) {
+    fun:imports(url, false)
+}
+
+function xt:import(url, pub) {
+    fun:imports(url, pub)
+}
+
+
+# return singleton Agent
+function xt:agent() {
+    ag:getDatatypeValue()
+}
+
+# use case: transformer operate on Mappings
+function xt:solution() {
+   maplist(xt:maptolist, java:getMappings(xt:query()))
+}
+
+function xt:maptolist(mm) {
+   maplist(lambda((var, val)) { xt:list(var, val) }, mm)
+}
 
 function xt:gui(aa) {
     gui:display(aa)

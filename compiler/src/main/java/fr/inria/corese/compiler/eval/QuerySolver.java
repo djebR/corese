@@ -8,7 +8,6 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.ASTQuery;
 import fr.inria.corese.sparql.triple.parser.Atom;
 import fr.inria.corese.sparql.triple.parser.BasicGraphPattern;
@@ -21,7 +20,6 @@ import fr.inria.corese.compiler.api.QueryVisitor;
 import fr.inria.corese.compiler.parser.Pragma;
 import fr.inria.corese.compiler.parser.Transformer;
 import fr.inria.corese.kgram.api.core.Node;
-import fr.inria.corese.kgram.api.query.Environment;
 import fr.inria.corese.kgram.api.query.Evaluator;
 import fr.inria.corese.kgram.api.query.Matcher;
 import fr.inria.corese.kgram.api.query.ProcessVisitor;
@@ -31,20 +29,19 @@ import fr.inria.corese.kgram.api.query.SPARQLEngine;
 import fr.inria.corese.kgram.core.Eval;
 import fr.inria.corese.kgram.core.Mapping;
 import fr.inria.corese.kgram.core.Mappings;
-import fr.inria.corese.kgram.core.ProcessVisitorDefault;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.kgram.core.Sorter;
+import fr.inria.corese.kgram.core.SparqlException;
 import fr.inria.corese.kgram.event.EventListener;
 import fr.inria.corese.kgram.event.EventManager;
 import fr.inria.corese.kgram.event.ResultListener;
 import fr.inria.corese.kgram.tool.MetaProducer;
-import fr.inria.corese.sparql.api.Computer;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
-import fr.inria.corese.sparql.triple.function.script.Funcall;
-import fr.inria.corese.sparql.triple.function.script.Function;
-import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.AccessRight;
 import fr.inria.corese.sparql.triple.parser.AccessRightDefinition;
+import fr.inria.corese.sparql.triple.parser.Context;
+import java.util.logging.Level;
 
 /**
  * Evaluator of SPARQL query by KGRAM Ready to use Package with KGRAM and SPARQL
@@ -71,7 +68,6 @@ public class QuerySolver implements SPARQLEngine {
     public static boolean BGP_DEFAULT = false;
     public static boolean ALGEBRA_DEFAULT = false;
     private static boolean visitorable = false;
-    private static boolean LINKED_FUNCTION_DEFAULT = false;
 
     static String NAMESPACES;
     private static Metadata defaultMetadata;
@@ -94,7 +90,6 @@ public class QuerySolver implements SPARQLEngine {
             isOptimize = false,
             isSPARQLCompliant = false;
     private boolean isGenerateMain = true;
-    private boolean linkedFunction = LINKED_FUNCTION_DEFAULT;
     private boolean isSynchronized = false;
     private boolean isPathType = false;
     private boolean isStorePath = true;
@@ -229,16 +224,16 @@ public class QuerySolver implements SPARQLEngine {
     /**
      * Does not perform construct {} if any it return the Mappings in this case
      */
-    public Mappings basicQuery(ASTQuery ast) {
+    public Mappings basicQuery(ASTQuery ast) throws EngineException {
         return basicQuery(ast, null, null);
     }
 
-    public Mappings basicQuery(ASTQuery ast, Mapping m, Dataset ds) {
+    public Mappings basicQuery(ASTQuery ast, Mapping m, Dataset ds) throws EngineException {
         Query query = compile(ast, ds);
         return query(query, m);
     }
 
-    public Query compile(ASTQuery ast, Dataset ds) {
+    public Query compile(ASTQuery ast, Dataset ds) throws EngineException {
         if (ds != null) {
             ast.setDefaultDataset(ds);
         }
@@ -259,32 +254,32 @@ public class QuerySolver implements SPARQLEngine {
         return query(query, map);
     }
 
-    public Mappings eval(Query query) {
+    public Mappings eval(Query query) throws EngineException {
         return query((Node) null, query, null);
     }
 
     @Override
-    public Mappings eval(Query query, Mapping m, Producer p) {
+    public Mappings eval(Query query, Mapping m, Producer p) throws SparqlException {
         return query((Node) null, query, m);
     }
 
     @Override
-    public Mappings eval(Node gNode, Query query, Mapping m, Producer p) {
+    public Mappings eval(Node gNode, Query query, Mapping m, Producer p) throws SparqlException {
         return query(gNode, query, m);
     }
 
-    public Mappings eval(Query query, Mapping m) {
+    public Mappings eval(Query query, Mapping m) throws EngineException {
         return query((Node) null, query, m);
     }
 
     /**
      * Core QueryExec processor
      */
-    public Mappings query(Query query, Mapping m) {
+    public Mappings query(Query query, Mapping m) throws EngineException {
         return query((Node) null, query, m);
     }
 
-    public Mappings query(Node gNode, Query query, Mapping m) {
+    public Mappings query(Node gNode, Query query, Mapping m) throws EngineException {
         init(query);
         debug(query);
 
@@ -297,10 +292,15 @@ public class QuerySolver implements SPARQLEngine {
 
         events(kgram);
         pragma(kgram, query);
-        tune(kgram, query);
+        tune(kgram, query, m);
 
         before(query);
-        Mappings map = kgram.query(gNode, query, m);
+        Mappings map;
+        try {
+            map = kgram.query(gNode, query, m);
+        } catch (SparqlException ex) {
+            throw EngineException.cast(ex);
+        }
         //TODO: check memory usage when storing Eval
         map.setEval(kgram);
         after(map);
@@ -359,13 +359,13 @@ public class QuerySolver implements SPARQLEngine {
         setCurrentEval(e);
     }
 
-    void tune(Eval kgram, Query q) {
+    void tune(Eval kgram, Query q, Mapping m) {
         ASTQuery ast = (ASTQuery) q.getAST();
         if (AccessRight.isActive()) {
             ast.setAccessRight(getAccessRight());
         }
         boolean event = ast.hasMetadata(Metadata.EVENT);
-        tune(kgram, event);
+        tune(kgram, m, event);
         if (q.isInitMode()) {
             // set visitor sleeping mode during init
             kgram.getVisitor().setActive(true);
@@ -373,19 +373,24 @@ public class QuerySolver implements SPARQLEngine {
     }
 
     void tune(Eval kgram) {
-        tune(kgram, false);
+        tune(kgram, null, false);
     }
 
-    void tune(Eval kgram, boolean isVisitor) {
+    void tune(Eval kgram, Mapping m, boolean isVisitor) {
         if (isVisitor || isVisitorable()) {
-            kgram.setVisitor(createProcessVisitor(kgram));
+            if (m != null && m.getVisitorParameter()!= null) {
+                m.getVisitorParameter().setProcessor(kgram);
+                kgram.setVisitor(m.getVisitorParameter());
+            }
+            else {
+                kgram.setVisitor(createProcessVisitor(kgram));
+            }
         }
         kgram.getVisitor().setDefaultValue(DatatypeMap.TRUE);
     }
 
     // overloaded by QueryProcess
     public ProcessVisitor createProcessVisitor(Eval eval) {
-        //return eval.getVisitor();
         return new QuerySolverVisitor(eval);
     }
 
@@ -411,25 +416,35 @@ public class QuerySolver implements SPARQLEngine {
 
     public Eval createEval(Query q) throws EngineException {
         Eval kgram = makeEval();
-        kgram.query(q);
+        try {
+            kgram.query(q);
+        } catch (SparqlException ex) {
+            throw EngineException.cast(ex);
+        }
         return kgram;
     }
 
+    @Deprecated
     public IDatatype eval(String q) throws EngineException {
-        return eval(q, MAIN_FUN, null);
+        return DatatypeMap.TRUE;
     }
-
-    public IDatatype eval(String q, Dataset ds) throws EngineException {
-        return eval(q, MAIN_FUN, ds);
-    }
-
-    IDatatype eval(String q, String name, Dataset ds) throws EngineException {
-        setGenerateMain(false);
-        Eval kgram = createEval(q, ds);
-        setEval(kgram);
-        IDatatype dt = (IDatatype) kgram.eval(name, new IDatatype[0]);
-        return dt;
-    }
+//
+//    public IDatatype eval(String q, Dataset ds) throws EngineException {
+//        return eval(q, MAIN_FUN, ds);
+//    }
+//
+//    IDatatype eval(String q, String name, Dataset ds) throws EngineException {
+//        setGenerateMain(false);
+//        Eval kgram = createEval(q, ds);
+//        setEval(kgram);
+//        IDatatype dt = funcall(name);
+//        return dt;
+//    }
+//    
+//    // overriden by QueryProcess
+//    public IDatatype funcall(String name, IDatatype... param) throws EngineException {
+//        return null;
+//    }
 
     void init(Query q) {
         // use case: OWL RL kg:sparql(query) in a rule
@@ -517,7 +532,6 @@ public class QuerySolver implements SPARQLEngine {
     }
 
     void setParameter(Transformer transformer) {
-        transformer.setLinkedFunction(isLinkedFunction());
         transformer.setGenerateMain(isGenerateMain());
         transformer.setNamespaces(NAMESPACES);
         transformer.setPragma(getPragma());
@@ -550,7 +564,7 @@ public class QuerySolver implements SPARQLEngine {
         return transformer;
     }
 
-    public Query compile(ASTQuery ast) {
+    public Query compile(ASTQuery ast) throws EngineException {
         Transformer transformer = transformer();
         setParameter(transformer);
         transformer.setSPARQLCompliant(isSPARQLCompliant);
@@ -558,12 +572,12 @@ public class QuerySolver implements SPARQLEngine {
         return query;
     }
 
-    public Mappings filter(Mappings map, String filter) throws EngineException {
-        Query q = compileFilter(filter);
-        Eval kgram = Eval.create(producer, evaluator, matcher);
-        kgram.filter(map, q);
-        return map;
-    }
+//    public Mappings filter(Mappings map, String filter) throws EngineException {
+//        Query q = compileFilter(filter);
+//        Eval kgram = Eval.create(producer, evaluator, matcher);
+//        kgram.filter(map, q);
+//        return map;
+//    }
 
     Query compileFilter(String filter) throws EngineException {
         String str = "select * where {} having(" + filter + ")";
@@ -571,7 +585,7 @@ public class QuerySolver implements SPARQLEngine {
         return q;
     }
 
-    public Mappings query(Query query) {
+    public Mappings query(Query query) throws EngineException {
         return query(query, null);
     }
 
@@ -842,30 +856,12 @@ public class QuerySolver implements SPARQLEngine {
         this.isGenerateMain = isGenerateMain;
     }
 
-    public Query parseQuery(String path) {
+    public Query parseQuery(String path) throws EngineException {
         throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 
     public ASTQuery parse(String path) throws EngineException {
         throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-    }
-
-    /**
-     * @return the loadFunction
-     */
-    public boolean isLinkedFunction() {
-        return linkedFunction;
-    }
-
-    /**
-     * @param loadFunction the loadFunction to set
-     */
-    public void setLinkedFunction(boolean loadFunction) {
-        this.linkedFunction = loadFunction;
-    }
-
-    public static void setLinkedFunctionDefault(boolean b) {
-        LINKED_FUNCTION_DEFAULT = b;
     }
 
     Metadata getActualMetadata() {
@@ -961,7 +957,7 @@ public class QuerySolver implements SPARQLEngine {
     }
 
     @Override
-    public void getLinkedFunction(String uri) {
+    public void getLinkedFunction(String uri) throws EngineException {
     }
 
     /**

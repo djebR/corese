@@ -24,6 +24,7 @@ import fr.inria.corese.compiler.eval.ProxyInterpreter;
 import fr.inria.corese.compiler.parser.NodeImpl;
 import fr.inria.corese.compiler.api.ProxyPlugin;
 import fr.inria.corese.compiler.eval.QuerySolver;
+import fr.inria.corese.compiler.eval.QuerySolverVisitorBasic;
 import fr.inria.corese.kgram.api.core.ExpType;
 import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
@@ -52,6 +53,7 @@ import fr.inria.corese.core.rule.RuleEngine;
 import fr.inria.corese.core.load.LoadException;
 import fr.inria.corese.core.load.LoadFormat;
 import fr.inria.corese.core.load.QueryLoad;
+import fr.inria.corese.core.load.Service;
 import fr.inria.corese.core.print.RDFFormat;
 import fr.inria.corese.core.print.ResultFormat;
 import fr.inria.corese.core.query.update.GraphManager;
@@ -76,6 +78,7 @@ import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.sparql.triple.parser.ASTExtension;
 import fr.inria.corese.sparql.triple.parser.Access;
 import java.util.logging.Level;
+import javax.ws.rs.core.Response;
 
 
 /**
@@ -106,6 +109,7 @@ public class PluginImpl
     public static final String EVENT    = EXT+"event";
     public static final String VERBOSE  = EXT+"verbose";
     public static final String METHOD   = EXT+"method";
+    public static final String EVENT_HIGH = EXT+"events";
     public static final String EVENT_LOW= EXT+"eventLow";
     public static final String SHOW     = EXT+"show";
     public static final String HIDE     = EXT+"hide";
@@ -536,8 +540,8 @@ public class PluginImpl
     @Override
     public IDatatype similarity(Environment env, Producer p, IDatatype dt1, IDatatype dt2) {
         Graph g = getGraph(p);
-        Node n1 = g.getNode(dt1.getLabel());
-        Node n2 = g.getNode(dt2.getLabel());
+        Node n1 = g.getNode(dt1); //.getLabel());
+        Node n2 = g.getNode(dt2); //.getLabel());
         if (n1 == null || n2 == null) {
             return null;
         }
@@ -548,8 +552,8 @@ public class PluginImpl
     }
 
     IDatatype ancestor(Graph g, IDatatype dt1, IDatatype dt2) {
-        Node n1 = g.getNode(dt1.getLabel());
-        Node n2 = g.getNode(dt2.getLabel());
+        Node n1 = g.getNode(dt1); //.getLabel());
+        Node n2 = g.getNode(dt2); //.getLabel());
         if (n1 == null || n2 == null) {
             return null;
         }
@@ -665,29 +669,28 @@ public class PluginImpl
     
     @Override
     public IDatatype load(IDatatype dt, IDatatype graph, IDatatype expectedFormat, IDatatype requiredFormat) {
+//        if (!readWriteAuthorized()) {
+//            return null;
+//        }
         Graph g;
-         if (graph == null || graph.pointerType() != GRAPH) {
-             g = Graph.create();
-         }
-         else {
-             g = (Graph) graph.getPointerObject();
-         }
-         Load ld = Load.create(g);
-         try {
-             if (readWriteAuthorized()){
-                 if (requiredFormat == null) {
-                    ld.parse(dt.getLabel(), getFormat(expectedFormat));
-                 }
-                 else {
-                    //System.out.println("PI: " + requiredFormat + " " + getFormat(requiredFormat));
-                    ld.parseWithFormat(dt.getLabel(), getFormat(requiredFormat));
-                 }
-             }
-         } catch (LoadException ex) {
-             logger.error("Load error: " + dt + " "+ ((requiredFormat!=null)?requiredFormat:""));
-             logger.error(ex.getMessage());
-             //ex.printStackTrace();
-         }
+        if (graph == null || graph.pointerType() != GRAPH) {
+            g = Graph.create();
+        } else {
+            g = (Graph) graph.getPointerObject();
+        }
+        Load ld = Load.create(g);
+        try {
+            if (requiredFormat == null) {
+                ld.parse(dt.getLabel(), getFormat(expectedFormat));
+            } else {
+                //System.out.println("PI: " + requiredFormat + " " + getFormat(requiredFormat));
+                ld.parseWithFormat(dt.getLabel(), getFormat(requiredFormat));
+            }
+        } catch (LoadException ex) {
+            logger.error("Load error: " + dt + " " + ((requiredFormat != null) ? requiredFormat : ""));
+            logger.error(ex.getMessage());
+            //ex.printStackTrace();
+        }
         IDatatype res = DatatypeMap.createObject(g);
         return res;
     }
@@ -698,10 +701,11 @@ public class PluginImpl
     
     @Override
     public IDatatype write(IDatatype dtfile, IDatatype dt) {
-        if (readWriteAuthorized()){
-            QueryLoad ql = QueryLoad.create();
-            ql.write(dtfile.getLabel(), dt.getLabel());
-        }
+//        if (!readWriteAuthorized()) {
+//            return null;
+//        }
+        QueryLoad ql = QueryLoad.create();
+        ql.write(dtfile.getLabel(), dt.getLabel());
         return dt;
     }
     
@@ -714,8 +718,7 @@ public class PluginImpl
     }
    
     static boolean readWriteAuthorized() {
-        //return readWriteAuthorized;
-        return Access.provide(Access.Feature.READ_WRITE_JAVA);
+        return Access.provide(Access.Feature.READ_WRITE);
     }
 
     Path getPath(Expr exp, Environment env){
@@ -1179,7 +1182,7 @@ public class PluginImpl
                 }
                 break;
                 
-            case EVENT:
+            case EVENT_HIGH:
                 getEventManager(p).setVerbose(dt2.booleanValue());
                 getGraph(p).setDebugMode(dt2.booleanValue());
                 break;
@@ -1211,6 +1214,9 @@ public class PluginImpl
                 break;
             case VISITOR:
                 QuerySolver.setVisitorable(dt2.booleanValue());
+                break;
+            case EVENT:
+                QuerySolverVisitorBasic.setEvent(dt2.booleanValue());
                 break;
 
             case RDF_STAR:
@@ -1312,9 +1318,9 @@ public class PluginImpl
 
     @Deprecated
     IDatatype load(Graph g, Object o) {
-        if (! readWriteAuthorized()){
-            return FALSE;
-        }
+//        if (! readWriteAuthorized()){
+//            return null;
+//        }
         loader(g);
         IDatatype dt = (IDatatype) o;
         try {
@@ -1354,9 +1360,9 @@ public class PluginImpl
      */
     @Override
     public IDatatype sparql(Environment env, Producer p, IDatatype[] param) {
-        if (! readWriteAuthorized()) {
-            return null;
-        }
+//        if (! Access.provide(Access.Feature.SPARQL)) {
+//            return null;
+//        }
         return kgram(env, getGraph(p), param[0].getLabel(), 
                 (param.length == 1) ? null : createMapping(p, param, 1));
     }
@@ -1404,7 +1410,14 @@ public class PluginImpl
         QueryProcess exec = QueryProcess.create(g, true);
         exec.setRule((env==null)?false:env.getQuery().isRule());
         try {
-            Mappings map = exec.sparqlQuery(query, m, (env==null)?null:getDataset(env));
+            Mappings map;
+            if (g.getLock().getReadLockCount() == 0 && ! g.getLock().isWriteLocked()) {
+                // use case: LDScript direct call  
+                map = exec.query(query, m, (env==null)?null:getDataset(env));
+            }
+            else {
+                map = exec.sparqlQuery(query, m, (env==null)?null:getDataset(env));
+            }
             if (map.getGraph() == null){
                 return DatatypeMap.createObject(map);
             }
@@ -1482,15 +1495,12 @@ public class PluginImpl
     
     @Override
     public IDatatype read(IDatatype dt){
-//        if (! readWriteAuthorized()){
-//            return null;
-//        }
         QueryLoad ql = QueryLoad.create();
         String str = null;
         try {
             str = ql.readWE(dt.getLabel());
         } catch (LoadException ex) {
-            LoggerFactory.getLogger(PluginImpl.class.getName()).error(  "", ex);
+            logger.error(  "", ex);
         }
         if (str == null){
             return null; //str = "";
@@ -1498,7 +1508,21 @@ public class PluginImpl
         return DatatypeMap.newInstance(str);
     }
 
-
+    @Override
+    public IDatatype httpget(IDatatype uri) {
+//        if (reject(Feature.READ_WRITE)) {
+//            return null;
+//        }
+        try {
+            Service s = new Service();
+            Response res = s.get(uri.getLabel());
+            String str = res.readEntity(String.class);
+            return DatatypeMap.newInstance(str);
+        } catch (Exception e) {
+            logger.error(e.getMessage() + "\n" + uri.getLabel(),"");
+        }
+        return null;
+    }
   
     String getLabel(IDatatype dt) {
         if (dt == null) {
@@ -1535,7 +1559,8 @@ public class PluginImpl
      * create concat(str, st:number(), str)
      */
     @Override
-    public Expr createFunction(String name, List<Object> args, Environment env){
+    public Expr createFunction(String name, List<Object> args, Environment env)
+    throws EngineException {
         return pt.createFunction(name, args, env);
     }
     
@@ -1546,7 +1571,7 @@ public class PluginImpl
      * rq:plus -> function rq:plus(x, y){ rq:plus(x, y) }
      */
     @Override
-    public Expr getDefine(Expr exp, Environment env, String name, int n){
+    public Expr getDefine(Expr exp, Environment env, String name, int n) throws EngineException{
         if (Processor.getOper(name) == ExprType.UNDEF){
             return null;            
         }       

@@ -4,8 +4,8 @@
  */
 package fr.inria.corese.server.webservice;
 
-import fr.inria.corese.compiler.eval.QuerySolver;
 import fr.inria.corese.core.query.QueryProcess;
+import fr.inria.corese.core.util.Parameter;
 import fr.inria.corese.sparql.triple.parser.Access;
 import fr.inria.corese.sparql.triple.parser.Constant;
 import org.apache.commons.cli.BasicParser;
@@ -130,6 +130,7 @@ public class EmbeddedJettyServer extends ResourceConfig {
 		Option string     = new Option("string", "string", false, "pprint string with xsd:string");
 		Option linkedFun  = new Option("lf", "linkedfunction", false, "authorize linked function");
 		Option reentrant  = new Option("re", "reentrant", false, "authorize reentrant query");
+		Option param      = new Option("param", "param", true, "read properties file");
 
 		Option sslOpt         = new Option("ssl", "ssl", false, "enable ssl connection ?");
 		Option portSslOpt     = new Option("pssl", "pssl", true, "port of ssl connection");
@@ -149,6 +150,7 @@ public class EmbeddedJettyServer extends ResourceConfig {
 		options.addOption(protect);
 		options.addOption(string);
 		options.addOption(linkedFun);
+		options.addOption(param);
 		options.addOption(reentrant);
 
 		options.addOption(sslOpt);
@@ -235,10 +237,20 @@ public class EmbeddedJettyServer extends ResourceConfig {
                         Access.setMode(Access.Mode.SERVER);
                         
                         if (cmd.hasOption("lf")) {
-                            logger.info("Linked Function");
-                            //QuerySolver.setLinkedFunctionDefault(true);
+                            logger.info("Linked Feature");
                             // still not available with protect mode
-                            Access.setLinkedFunction(true);
+                            Access.setLinkedFeature(true);
+                        }
+                        if (cmd.hasOption("param")) {
+                            String prop = cmd.getOptionValue("param");
+                            logger.info("param = " + prop);
+                            if (prop != null) {
+                                try {
+                                    new Parameter().load(prop).process();
+                                } catch (Exception e) {
+                                    logger.error(e);
+                                }
+                            }
                         }
                         if (cmd.hasOption("re")) {
                             logger.info("Reentrant query");
@@ -309,7 +321,8 @@ public class EmbeddedJettyServer extends ResourceConfig {
 				SDK.class,
 				Tutorial.class,ServiceOnline.class,
 				Transformer.class,
-				Processor.class
+				Processor.class,
+                                Agent.class
 			);
 			ServletContainer servletContainer = new ServletContainer(config);
 			ServletHolder servletHolder = new ServletHolder(servletContainer);

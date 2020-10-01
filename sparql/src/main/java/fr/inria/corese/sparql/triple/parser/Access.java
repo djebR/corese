@@ -26,11 +26,13 @@ public class Access {
     // super user is access level for LinkedFunction
     public enum Level     { 
         
-        PUBLIC(1), RESTRICTED(2), PRIVATE(3), SUPER_USER(4) ; 
+        PUBLIC(1), RESTRICTED(2), PRIVATE(3), DENIED(4), SUPER_USER(5)  ; 
         
         private int value;
         
         public static Level DEFAULT = PRIVATE;
+        public static Level USER    = PUBLIC;
+        public static Level DENY    = DENIED;
         
         private Level(int n) {
             value = n;
@@ -54,9 +56,13 @@ public class Access {
     } ;
     
     public enum Feature  { 
-        FUNCTION_DEFINITION, LINKED_FUNCTION, 
-        READ_WRITE_JAVA, 
-        LD_SCRIPT, SPARQL_UPDATE, 
+        FUNCTION_DEFINITION, IMPORT_FUNCTION,
+        LINKED_FUNCTION, LINKED_TRANSFORMATION,
+        READ_WRITE, JAVA_FUNCTION,
+        LD_SCRIPT, 
+        // sparql query in LDScript
+        SPARQL, 
+        SPARQL_UPDATE, 
     }
     
     class FeatureLevel extends HashMap<Feature, Level> {
@@ -83,7 +89,7 @@ public class Access {
     private static Mode mode; 
     
     static {
-        singleton = new Access(PRIVATE);
+        singleton = new Access(DEFAULT);
         setMode(Mode.LIBRARY);
     }
     
@@ -115,6 +121,14 @@ public class Access {
     private FeatureLevel table() {
         return table;
     }
+    
+    public static void deny(Feature feature) {
+        set(feature, DENY);
+    }
+    
+    public static void authorize(Feature feature) {
+        set(feature, DEFAULT);
+    }
         
     public static void set(Feature feature, Level accessRight) {
         driver().put(feature, accessRight);
@@ -143,6 +157,17 @@ public class Access {
         return DEFAULT.provide(get(feature));
     }
     
+    public static boolean accept(Feature feature, Context c) {
+        if (c == null) {
+            return accept(feature);
+        }
+        return accept(feature, c.getLevel());
+    }
+    
+    public static boolean reject(Feature feature, Context c) {
+        return ! accept(feature, c);
+    }
+    
     public static boolean reject(Feature feature, Level actionLevel) {
         return ! accept(feature, actionLevel);
     }
@@ -151,51 +176,63 @@ public class Access {
         return ! accept(feature);
     }
     
-    /**
-     * if query is public (it comes from http sparql endpoint)
-     *   if server is protect : access level is public (protect the query)
-     *   else access is default (it is my query, I want all features)
-     */
-    public static Level getLevel(Level actionLevel) {
-        if (actionLevel == PUBLIC) {
-            if (isProtect()) {
-                return PUBLIC;
-            }
-            return DEFAULT;
-        }
+    
+    public static Level getLevel(Level actionLevel) {        
         return actionLevel;
     }
     
+    /**
+     * Used by server to grant access right to server query (user query or system query)
+     * user = true : user query coming from http request
+     * special = true: grant RESTRICTED access level (better than PUBLIC) 
+     * Return the access right granted to the query 
+     */
     public static Level getQueryAccessLevel(boolean user, boolean special) {
         if (isProtect()) {
+            // run in protect mode
             if (user) {
                 if (special) {
-                    return Level.RESTRICTED;
+                    // special case: authorize SPARQL_UPDATE (e.g. for tutorial)
+                    return RESTRICTED;
                 }
                 else {
-                    return Level.PUBLIC;
+                    // user query has only access to PUBLIC feature
+                    return USER;
                 }
             }
         }
-        return Level.DEFAULT;
+        return DEFAULT;
     }
     
-    // protect DEFAULT level
-    public static void protect() {
-        setProtect(true);
-        set(READ_WRITE_JAVA, SUPER_USER);
+
+    
+    public static void setLinkedFeature(boolean b) {
+         setLinkedFunction(b);
+         setLinkedTransformation(b);
     }
         
+    /**
+     * Available for DEFAULT but not for PUBLIC
+     */
     public static void setLinkedFunction(boolean b) {
         if (b) {
-            set(LINKED_FUNCTION, DEFAULT);
-            //System.out.println(singleton);
+            authorize(LINKED_FUNCTION);
+        } else {
+            deny(LINKED_FUNCTION);
+        }
+    }
+    
+    public static void setLinkedTransformation(boolean b) {
+        if (b) {
+            authorize(LINKED_TRANSFORMATION);
+        } else {
+            deny(LINKED_TRANSFORMATION);
         }
     }
     
     // everything is forbiden to DEFAULT level
     public static void restrict() {
-        singleton = new Access(SUPER_USER);
+        singleton = new Access(DENIED);
     }
     
     
@@ -235,11 +272,33 @@ public class Access {
         init();
     }
     
+    /**
+     * default mode:
+     * everything is authorized as DEFAULT except some features
+     * in server mode, user query is PUBLIC
+     * 
+     */
     void init() {
-        // everything is private except:
-        set(LINKED_FUNCTION, SUPER_USER);
+        deny(LINKED_FUNCTION);
+        // external transformation may contain/import function definition
+        //deny(LINKED_TRANSFORMATION);
         set(SPARQL_UPDATE, RESTRICTED);
         set(LD_SCRIPT, PUBLIC);
+    }
+    
+    /**
+     * protected mode:
+     * some features are protected
+     *
+     */
+    public static void protect() {
+        setProtect(true);
+        deny(READ_WRITE);
+        deny(JAVA_FUNCTION);
+        deny(LINKED_FUNCTION);
+        // external transformation may contain/import function definition
+        deny(LINKED_TRANSFORMATION);
+        // IMPORT_FUNCTION is PRIVATE and user query is PUBLIC
     }
     
       /**

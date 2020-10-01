@@ -24,11 +24,13 @@ import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.api.core.Regex;
 import fr.inria.corese.kgram.api.core.TripleStore;
 import fr.inria.corese.kgram.api.query.Environment;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.kgram.core.Mapping;
 import fr.inria.corese.kgram.core.Mappings;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import java.util.Collection;
 
 /**
@@ -88,7 +90,7 @@ public class Expression extends TopExp
     /**
      * Every filter/select/bind exp is compiled
      */
-    public Expression compile(ASTQuery ast) {
+    public Expression compile(ASTQuery ast) throws EngineException {
         prepare(ast);
         local(ast);
         return this;
@@ -113,7 +115,7 @@ public class Expression extends TopExp
         vis.start(this);
     }
 
-    Expression prepare(ASTQuery ast) {
+    public Expression prepare(ASTQuery ast) throws EngineException {
         return this;
     }
 
@@ -1009,11 +1011,11 @@ public class Expression extends TopExp
         return EXPRESSION;
     }
 
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         return null;
     }
 
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p, IDatatype[] param) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p, IDatatype[] param) throws EngineException {
         return null;
     }
 

@@ -35,7 +35,10 @@ import fr.inria.corese.core.print.JSONLDFormat;
 import fr.inria.corese.core.print.ResultFormat;
 import fr.inria.corese.core.print.TSVFormat;
 import fr.inria.corese.core.print.TripleFormat;
+import fr.inria.corese.kgram.core.Eval;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.Access;
+import java.util.logging.Level;
 import javax.servlet.http.HttpServletRequest;
 
 /**
@@ -67,10 +70,27 @@ public class SPARQLRestAPI {
 
     private static Profile mprofile;
 
-    private final Logger logger = LogManager.getLogger(this.getClass());
+    static private final Logger logger = LogManager.getLogger(SPARQLRestAPI.class);
+    
+    QuerySolverVisitorServer visitor;
 
     public SPARQLRestAPI() {
+        setVisitor(QuerySolverVisitorServer.create(createEval()));
     }
+    
+     /**
+     * Current graph is SPARQL endpoint graph.
+     */
+    static Eval createEval() {
+        QueryProcess exec = QueryProcess.create(getTripleStore().getGraph());
+        try {
+            return exec.getEval();
+        } catch (EngineException ex) {
+            java.util.logging.Logger.getLogger(QuerySolverVisitorServer.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return null;
+    }
+    
 
     QueryProcess getQueryProcess() {
         return getTripleStore().getQueryProcess();
@@ -78,6 +98,14 @@ public class SPARQLRestAPI {
 
     static TripleStore getTripleStore() {
         return store;
+    }
+    
+    QuerySolverVisitorServer getVisitor() {
+        return visitor;
+    }
+    
+    void setVisitor(QuerySolverVisitorServer vis) {
+        visitor = vis;
     }
 
     /**
@@ -106,6 +134,8 @@ public class SPARQLRestAPI {
         }
         store.init(isProtected);
         mprofile.setProtect(isProtected);
+        setVisitor( QuerySolverVisitorServer.create(createEval()));
+        getVisitor().initServer(EmbeddedJettyServer.BASE_URI);
         return Response.status(200).header(headerAccept, "*").entity("Endpoint reset").build();
     }
 
@@ -231,6 +261,20 @@ public class SPARQLRestAPI {
     // SPARQL QUERY - SELECT and ASK with HTTP GET
     // ----------------------------------------------------
 
+    /**
+     * Visitor call LDScript event @beforeRequest @public function 
+     * profile.ttl must load function definitions, 
+     * e.g. <demo/system/event.rq>
+     * 
+     */
+    void beforeRequest(HttpServletRequest request, String query) {
+        getVisitor().beforeRequest(request, query);
+    }
+    
+    void afterRequest(HttpServletRequest request, String query, Mappings map) {
+        getVisitor().afterRequest(request, query, map);
+    }
+    
     @GET
     @Produces({"application/sparql-results+xml", "application/xml", "text/plain"})
     public Response getTriplesXMLForGet(@javax.ws.rs.core.Context HttpServletRequest request,
@@ -238,6 +282,9 @@ public class SPARQLRestAPI {
             @QueryParam("default-graph-uri") List<String> defaultGraphUris, 
             @QueryParam("named-graph-uri")   List<String> namedGraphUris,
             @QueryParam ("format")           String format) {
+        
+        beforeRequest(request, query);
+        
         try {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Get SPARQL Result XML/plain: " + query);
@@ -250,6 +297,7 @@ public class SPARQLRestAPI {
                 return Response.status(200).header(headerAccept, "*").entity(res).build();                
             }
             String res = getResult(map, format);
+            afterRequest(request, query, map);
             return Response.status(200).header(headerAccept, "*").entity(res).build();
         } catch (Exception ex) {
             logger.error("Error while querying the remote KGRAM engine", ex);
@@ -421,6 +469,8 @@ public class SPARQLRestAPI {
                 query = message;
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result XML/plain: " + query);
+        
+            beforeRequest(request, query);
 
             Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
             String res = getResult(map, format);
@@ -448,6 +498,8 @@ public class SPARQLRestAPI {
             if (logger.isDebugEnabled())
                 logger.debug("Rest Post SPARQL Result XML/plain: " + query);
 
+            beforeRequest(request, query);
+            
             Mappings map = getTripleStore().query(request, query, createDataset(defaultGraphUris, namedGraphUris));
             String res = getResult(map, format);
             return Response.status(200).header(headerAccept, "*").entity(res).build();

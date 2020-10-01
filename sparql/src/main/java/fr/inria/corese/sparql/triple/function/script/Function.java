@@ -14,9 +14,11 @@ import fr.inria.corese.sparql.triple.parser.Variable;
 import fr.inria.corese.sparql.compiler.java.JavaCompiler;
 import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.kgram.api.query.Environment;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.sparql.api.GraphProcessor;
 import fr.inria.corese.sparql.datatype.RDF;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.ASTBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -95,16 +97,25 @@ public class Function extends Statement {
         return body;
     }
 
+    // retun the URI of the Function
     @Override
     public IDatatype getDatatypeValue() {
-        if (dt != null) {
-            return dt;
+        if (getFunctionDatatypeValue() != null) {
+            return getFunctionDatatypeValue();
         }
         return getSignature().getCName().getDatatypeValue();
     }
+    
+    public IDatatype getFunctionDatatypeValue() {
+         return dt;
+    }
+    
+    public void setFunctionDatatypeValue(IDatatype dt) {
+        this.dt = dt;
+    }
 
     @Override
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         return getDatatypeValue();
     }
 
@@ -121,7 +132,7 @@ public class Function extends Statement {
     }
 
     @Override
-    public Expression compile(ASTQuery ast) {
+    public Expression compile(ASTQuery ast) throws EngineException {
         Expression exp = super.compile(ast);
         if (isTrace()) {
             System.out.println(this);
@@ -145,7 +156,7 @@ public class Function extends Statement {
     }
 
     ASTBuffer lambda(ASTBuffer sb) {
-        sb.append("lambda(");
+        sb.append("function(");
         int i = 0;
         for (Expression var : getSignature().getArgs()) {
             if (i++ > 0) {
@@ -346,7 +357,7 @@ public class Function extends Statement {
 
     void defineLambda() {
         setLambda(true);
-        dt = DatatypeMap.createObject(getDatatypeValue().stringValue(), this);
+        setFunctionDatatypeValue(DatatypeMap.createObject(getDatatypeValue().stringValue(), this));
     }
 
     /**

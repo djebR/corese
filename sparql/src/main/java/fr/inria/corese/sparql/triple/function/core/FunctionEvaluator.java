@@ -1,6 +1,7 @@
 package fr.inria.corese.sparql.triple.function.core;
 
 import fr.inria.corese.kgram.api.query.Environment;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.api.query.Producer;
 
 /**
@@ -9,8 +10,8 @@ import fr.inria.corese.kgram.api.query.Producer;
  */
 public interface FunctionEvaluator {
     
-    void setProducer(Producer p);
+    default void setProducer(Producer p) {}
     
-    void setEnvironment(Environment e);
+    default void setEnvironment(Environment e) {}
     
 }

@@ -290,6 +290,7 @@ public interface ExprType {
 	public static int JAVACAST      = 333;
         public static int ISEXTENSION   = 334;
         public static int SAFE          = 335;
+        public static int STATIC        = 336;
         
         public static int XT_MAPPING     = 400;
         public static int XT_ADD         = 401;
@@ -382,6 +383,7 @@ public interface ExprType {
         public static int XT_SUBJECTS    = 486;
         public static int XT_OBJECTS     = 487;
         public static int XT_SYNTAX      = 488;
+        public static int XT_HTTP_GET    = 489;
         
         
              

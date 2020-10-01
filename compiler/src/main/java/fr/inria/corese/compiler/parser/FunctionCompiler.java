@@ -5,30 +5,49 @@ import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.core.Query;
 import fr.inria.corese.sparql.datatype.DatatypeHierarchy;
 import fr.inria.corese.sparql.exceptions.EngineException;
+import fr.inria.corese.sparql.exceptions.SafetyException;
+import fr.inria.corese.sparql.exceptions.UndefinedExpressionException;
 import fr.inria.corese.sparql.triple.function.script.Function;
+import fr.inria.corese.sparql.triple.function.term.TermEval;
 import fr.inria.corese.sparql.triple.parser.ASTExtension;
 import fr.inria.corese.sparql.triple.parser.ASTQuery;
 import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.triple.parser.Access.Feature;
+import fr.inria.corese.sparql.triple.parser.Access.Level;
+import fr.inria.corese.sparql.triple.parser.AccessNamespace;
 import fr.inria.corese.sparql.triple.parser.Expression;
 import fr.inria.corese.sparql.triple.parser.Metadata;
 import fr.inria.corese.sparql.triple.parser.NSManager;
+import java.util.ArrayList;
 import java.util.HashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- *
- * @author corby
+ * @import <url>
+ * dereference URL at compile time
+ * LinkedFunction: 
+ * 1) ff:foo() undefined extension function:         dereference  URL at compile time
+ * 2) funcall (ff:foo) undefined extension function: dereference  URL at runtime 
+ * 
+ * LinkedFunction : Access.setLinkedFunction(true);
+ * whereas @import is granted
+ * 
+ * Accept/reject namespace for import and LinkedFunction:
+ * AccessNamespace.define(namespace, true|false)
+ * 
+ * @author Olivier Corby, INRIA I3S 2020
  */
 public class FunctionCompiler {
 
+    private static String NL = System.getProperty("line.separator");
     private static Logger logger = LoggerFactory.getLogger(FunctionCompiler.class);
-    static HashMap<String, String> loaded;
+    private static HashMap<String, String> loaded;
     HashMap<String, String> imported;
     Transformer transformer;
 
     static {
-        loaded = new HashMap<>();
+        setLoaded(new HashMap<>());
     }
 
     FunctionCompiler(Transformer t) {
@@ -36,18 +55,18 @@ public class FunctionCompiler {
         imported = new HashMap<>();
     }
 
-    void compile(Query q, ASTQuery ast) {
+    void compile(Query q, ASTQuery ast) throws EngineException {
         imports(q, ast);
         compileFunction(q, ast);
         compileLambda(q, ast);
     }
 
-    void compileFunction(Query q, ASTQuery ast) {
+    void compileFunction(Query q, ASTQuery ast) throws EngineException {
         compile(q, ast, ast.getDefine());
         define(q, ast);
     }
 
-    void compileLambda(Query q, ASTQuery ast) {
+    void compileLambda(Query q, ASTQuery ast) throws EngineException {
         compile(q, ast, ast.getDefineLambda());
         define(ast, ast.getDefineLambda(), q);
     }
@@ -56,19 +75,19 @@ public class FunctionCompiler {
      * defined functions use case: transformation profile PRAGMA: expressions
      * have declared local variables (see ASTQuery Processor)
      */
-    void define(Query q, ASTQuery ast) {
+    void define(Query q, ASTQuery ast) throws SafetyException {
         if (ast.getDefine() == null || ast.getDefine().isEmpty()) {
             return;
         }
-        if (Access.reject(Access.Feature.FUNCTION_DEFINITION, ast.getLevel())) { //(ast.isUserQuery()) {
-            System.out.println("Compiler: extension function not available in server mode");
-            return;
+        if (Access.reject(Access.Feature.FUNCTION_DEFINITION, ast.getLevel())) { 
+            //logger.error("Extension function definition unauthorized");
+            throw new SafetyException(TermEval.FUNCTION_DEFINITION_MESS);
         }
 
         define(ast, ast.getDefine(), q);
     }
 
-    void compile(Query q, ASTQuery ast, ASTExtension ext) {
+    void compile(Query q, ASTQuery ast, ASTExtension ext) throws EngineException {
         if (ext.isCompiled()) {
             // recursion from subquery in function: do nothing
         } else {
@@ -80,7 +99,7 @@ public class FunctionCompiler {
         }
     }
 
-    void compile(Query q, ASTQuery ast, Function fun) {
+    void compile(Query q, ASTQuery ast, Function fun) throws EngineException {
         if (fun.getMetadata() != null) {
             basicImports(q, ast, fun.getMetadata());
         }
@@ -90,36 +109,93 @@ public class FunctionCompiler {
     }
 
     // @import <uri> select where 
-    void imports(Query q, ASTQuery ast) {
+    void imports(Query q, ASTQuery ast) throws EngineException {
         if (ast.hasMetadata(Metadata.IMPORT)) {
             basicImports(q, ast, ast.getMetadata());
         }
     }
     
-    void imports(Query q, ASTQuery ast, Metadata m) {
-        if (Access.accept(Access.Feature.LINKED_FUNCTION, ast.getLevel())) {
-            basicImports(q, ast, m);
-        }
-        else 
-            if (m.hasMetadata(Metadata.IMPORT)){
-            logger.error("Unauthorized import: " + m.getValues(Metadata.IMPORT));
-        }
-    }
-    
-    void basicImports(Query q, ASTQuery ast, Metadata m) {
+    void basicImports(Query q, ASTQuery ast, Metadata m) throws EngineException {
         if (m.hasMetadata(Metadata.IMPORT)) {
             for (String path : m.getValues(Metadata.IMPORT)) {
-                try {
-                    imports(q, ast, path);
-                } catch (EngineException ex) {
-                    logger.error("Error in import: " + path);
-                    logger.error(ex.toString());
-                }
+                imports(q, ast, path);
             }
         }
     }
-
+    
     void imports(Query q, ASTQuery ast, String path) throws EngineException {
+        if (Access.accept(Feature.IMPORT_FUNCTION, ast.getLevel()) && 
+            acceptNamespace(path)) {
+            basicImports(q, ast, path);
+        }
+        else {
+            throw new SafetyException(TermEval.IMPORT_MESS);
+        }
+    }
+    
+    
+    
+    
+    /**
+     * After compiling query, there are undefined functions
+     * If authorized, load LinkedFunction
+     * If still undefined, throw Undefined Exception
+     */
+    void undefinedFunction(Query q, ASTQuery ast) throws EngineException {
+        ArrayList<Expression> list = new ArrayList<>();
+
+        for (Expression exp : ast.getUndefined().values()) {
+            boolean ok = Interpreter.isDefined(exp) || q.getExtension().isDefined(exp);
+            if (ok) {
+            } else {
+                if (acceptLinkedFunction(ast.getLevel())
+                        && acceptNamespace(exp.getLabel())) {
+                    ok = getLinkedFunctionBasic(q, exp);
+                }
+                if (!ok) {
+                    list.add(exp);
+                }
+            }
+        }
+
+        if (list.isEmpty()) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Expression exp : list) {
+            sb.append(exp.toString()).append(NL);
+        }
+        throw new UndefinedExpressionException(TermEval.UNDEFINED_EXPRESSION_MESS + NL + sb.toString());
+    }
+    
+    boolean acceptLinkedFunction(Level level) {
+        return Access.accept(Feature.LINKED_FUNCTION, level);
+    }
+    
+    /**
+     * For LinkedFunction and @import
+     */
+    boolean acceptNamespace(String ns) {
+        return AccessNamespace.access(ns);
+    }
+    
+    boolean getLinkedFunctionBasic(Query q, Expression exp) throws EngineException {
+        boolean b = getLinkedFunctionBasic(exp.getLabel());
+        if (b) {
+            return Interpreter.isDefined(exp);
+        }
+        return false;
+    }
+    
+    boolean getLinkedFunction(String label) throws EngineException {
+        if (acceptLinkedFunction(Level.DEFAULT) && acceptNamespace(label)) { 
+            return getLinkedFunctionBasic(label);
+        }
+        return false;
+    }
+    
+    
+    void basicImports(Query q, ASTQuery ast, String path) throws EngineException {
         if (imported.containsKey(path)) {
             return;
         }
@@ -134,35 +210,13 @@ public class FunctionCompiler {
         define(ast, ast2.getDefineLambda(), q);
     }
 
-    void undefinedFunction(Query q, ASTQuery ast) {
-        for (Expression exp : ast.getUndefined().values()) {
-            boolean ok = Interpreter.isDefined(exp) || q.getExtension().isDefined(exp);
-            if (ok) {
-            } else {
-                ok = Access.accept(Access.Feature.LINKED_FUNCTION, ast.getLevel())
-                        && importFunction(q, exp);
-                if (!ok) {
-                    ast.addError("Undefined expression: " + exp);
-                }
-            }
-        }
-    }
-
-    boolean importFunction(Query q, Expression exp) {
-        boolean b = getLinkedFunctionBasic(exp.getLabel());
-        if (b) {
-            return Interpreter.isDefined(exp);
-        }
-        return false;
-    }
-
-    boolean getLinkedFunctionBasic(String label) {
+    boolean getLinkedFunctionBasic(String label) throws EngineException {
         String path = NSManager.namespace(label);
-        if (loaded.containsKey(path)) {
+        if (getLoaded().containsKey(path)) {
             return true;
         }
         logger.info("Load Linked Function: " + label);
-        loaded.put(path, path);
+        getLoaded().put(path, path);
         Query imp = transformer.getSPARQLEngine().parseQuery(path);
         if (imp != null && imp.hasDefinition()) {
             // loaded functions are exported in Interpreter  
@@ -173,10 +227,10 @@ public class FunctionCompiler {
     }
 
     static void removeLinkedFunction() {
-        for (String name : loaded.values()) {
+        for (String name : getLoaded().values()) {
             Interpreter.getExtension().removeNamespace(name);
         }
-        loaded.clear();
+        getLoaded().clear();
     }
 
     /**
@@ -240,6 +294,24 @@ public class FunctionCompiler {
             // export function with exists {} 
             fun.getTerm().setPattern(q);
         }
+    }
+    
+    public static void clean() {
+        getLoaded().clear();;
+    }
+
+    /**
+     * @return the loaded
+     */
+    public static HashMap<String, String> getLoaded() {
+        return loaded;
+    }
+
+    /**
+     * @param aLoaded the loaded to set
+     */
+    public static void setLoaded(HashMap<String, String> aLoaded) {
+        loaded = aLoaded;
     }
 
 }

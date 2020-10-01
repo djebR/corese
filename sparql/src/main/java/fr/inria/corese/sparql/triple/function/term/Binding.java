@@ -11,6 +11,8 @@ import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.query.Binder;
 import fr.inria.corese.kgram.api.query.ProcessVisitor;
+import fr.inria.corese.sparql.triple.parser.Access;
+import fr.inria.corese.sparql.triple.parser.Context;
 import fr.inria.corese.sparql.triple.parser.Variable;
 import fr.inria.corese.sparql.triple.parser.VariableLocal;
 import java.util.ArrayList;
@@ -54,6 +56,14 @@ public class Binding implements Binder {
     private boolean dynamicCapture = DYNAMIC_CAPTURE_DEFAULT;
     private boolean result;
     private boolean coalesce = false;
+    private Access.Level accessLevel = Access.Level.DEFAULT;
+    private Context context;
+    
+    private static Binding singleton;
+    
+    static {
+        setSingleton(new Binding());
+    }
 
     Binding() {
         varList = new ArrayList();
@@ -90,6 +100,7 @@ public class Binding implements Binder {
         for (String name : getGlobalVariableNames().keySet()) {
             sb.append(name).append(" = ").append(getGlobalVariableValues().get(name)).append(NL);
         }
+        sb.append("access level: ").append(getAccessLevel()).append(NL);
         return sb.toString();
     }
 
@@ -313,7 +324,7 @@ public class Binding implements Binder {
                     }
                 }
                 
-                IDatatype dt = getGlobalVariableValues().get(var.getLabel());
+                IDatatype dt = getGlobalVariable(var.getLabel());
                 if (dt == null) {
 
                     if (isDebug()) {
@@ -370,12 +381,30 @@ public class Binding implements Binder {
         return (level.isEmpty()) ? 0 : getLevel();
     }
     
+    // global variable
     public IDatatype getVariable(String name) {
         return getGlobalVariableValues().get(name);
     }
-   
+    
+    // global variable + static global variable
+    public IDatatype getGlobalVariable(String name) {
+        IDatatype dt = getGlobalVariableValues().get(name);
+        if (dt == null) {
+            return getStaticVariable(name);
+        }
+        return dt;
+    }
+      
     public Binding setVariable(String name, IDatatype val) {
         return bind(new VariableLocal(name), val);
+    }
+    
+    public static Binding setStaticVariable(String name, IDatatype val) {
+        return getSingleton().setVariable(name, val);
+    }
+    
+    public static IDatatype getStaticVariable(String name) {
+        return getSingleton().getVariable(name);
     }
     
     public boolean hasVariable() {
@@ -464,6 +493,16 @@ public class Binding implements Binder {
     }
     
     public void share(Binding b) {
+        shareGlobalVariable(b);
+        shareContext(b);
+    }
+    
+    void shareContext(Binding b) {
+        setAccessLevel(b.getAccessLevel());
+        setDebug(b.isDebug());
+    }
+    
+    void shareGlobalVariable(Binding b) {
         setGlobalVariableNames(b.getGlobalVariableNames());
         setGlobalVariableValues(b.getGlobalVariableValues());
     }
@@ -590,6 +629,48 @@ public class Binding implements Binder {
      */
     public void setCoalesce(boolean coalesce) {
         this.coalesce = coalesce;
+    }
+
+    /**
+     * @return the singleton
+     */
+    public static Binding getSingleton() {
+        return singleton;
+    }
+
+    /**
+     * @param aSingleton the singleton to set
+     */
+    public static void setSingleton(Binding aSingleton) {
+        singleton = aSingleton;
+    }
+
+    /**
+     * @return the accessLevel
+     */
+    public Access.Level getAccessLevel() {
+        return accessLevel;
+    }
+
+    /**
+     * @param accessLevel the accessLevel to set
+     */
+    public void setAccessLevel(Access.Level accessLevel) {
+        this.accessLevel = accessLevel;
+    }
+
+    /**
+     * @return the context
+     */
+    public Context getContext() {
+        return context;
+    }
+
+    /**
+     * @param context the context to set
+     */
+    public void setContext(Context context) {
+        this.context = context;
     }
     
 }

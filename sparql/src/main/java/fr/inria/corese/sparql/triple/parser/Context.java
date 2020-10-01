@@ -84,6 +84,7 @@ public class Context extends ASTObject {
     NSManager nsm;
     private Binding bind;
     Access.Level level = Access.Level.DEFAULT;
+    private boolean debug;
     
     private boolean userQuery = false;
    
@@ -97,6 +98,15 @@ public class Context extends ASTObject {
     public Context() {
         table = new HashMap();
         export = new HashMap();
+    }
+    
+    public static Context create() {
+        return new Context();
+    }
+    
+    public Context(Access.Level level) {
+        this();
+        setLevel(level);
     }
 
     @Override
@@ -112,8 +122,9 @@ public class Context extends ASTObject {
             sb.append(NL);
         }
         if (isUserQuery()) {
-            sb.append("user query: true");
+            sb.append("user query: true").append(NL);
         }
+        sb.append("level: ").append(getLevel()).append(NL);
         return sb.toString();
     }
     
@@ -249,6 +260,14 @@ public class Context extends ASTObject {
     public IDatatype cset(IDatatype name, IDatatype slot, IDatatype value){
         getContext(name).set(slot, value);
         return value;
+    }
+    
+    // remove named context
+    public IDatatype cremove(IDatatype name) {
+        if (getNamedContext() != null){    
+            getNamedContext().remove(name.getLabel());
+        }
+        return DatatypeMap.TRUE;
     }
     
     public Context set(IDatatype name, IDatatype value) {
@@ -476,8 +495,9 @@ public class Context extends ASTObject {
         return level;
     }
     
-    public void setLevel(Access.Level l) {
+    public Context setLevel(Access.Level l) {
         level = l;
+        return this;
     }
 
     /**
@@ -542,6 +562,20 @@ public class Context extends ASTObject {
     public Context setBind(Binding bind) {
         this.bind = bind;
         return this;
+    }
+
+    /**
+     * @return the debug
+     */
+    public boolean isDebug() {
+        return debug;
+    }
+
+    /**
+     * @param debug the debug to set
+     */
+    public void setDebug(boolean debug) {
+        this.debug = debug;
     }
   
 }

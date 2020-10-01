@@ -1,11 +1,12 @@
-package fr.inria.corese.sparql.datatype;
+package fr.inria.corese.sparql.datatype.extension;
 
 import fr.inria.corese.kgram.api.core.PointerType;
-import fr.inria.corese.sparql.api.IDatatype;
-import static fr.inria.corese.sparql.datatype.CoreseDatatype.getGenericDatatype;
 import fr.inria.corese.kgram.api.core.Pointerable;
 import fr.inria.corese.kgram.core.Exp;
 import fr.inria.corese.kgram.path.Path;
+import fr.inria.corese.sparql.api.IDatatype;
+import fr.inria.corese.sparql.datatype.CoreseUndefLiteral;
+import fr.inria.corese.sparql.datatype.DatatypeMap;
 import fr.inria.corese.sparql.exceptions.CoreseDatatypeException;
 import fr.inria.corese.sparql.triple.parser.Expression;
 import java.util.ArrayList;
@@ -39,11 +40,11 @@ public class CoresePointer extends CoreseUndefLiteral {
     }
     
     
-    CoresePointer (Pointerable obj){
+    public CoresePointer (Pointerable obj){
         this(obj.getDatatypeLabel(), obj);
     }
         
-    CoresePointer (String name, Pointerable obj){
+    public CoresePointer (String name, Pointerable obj){
         super(name);
         pobject = obj;
     } 
@@ -169,12 +170,25 @@ public class CoresePointer extends CoreseUndefLiteral {
     public String display2(){
         StringBuilder sb = new StringBuilder();
         sb.append("\"").append(getContent()).append("\"");
-        sb.append("^^").append(nsm.toPrefix(getDatatypeURI()));
+        sb.append("^^").append(nsm().toPrefix(getDatatypeURI()));
         return sb.toString();
     }
     
      @Override
     public boolean equalsWE(IDatatype dt) throws CoreseDatatypeException {
+        if (dt.isPointer()) {
+            if (getPointerObject() == null || dt.getPointerObject() == null) {
+                return getPointerObject() == dt.getPointerObject();
+            }
+            return getPointerObject().equals(dt.getPointerObject());
+        }
+        if (dt.isExtension()) {
+            return false;
+        }
+        return super.equalsWE(dt);
+    }
+    
+    public boolean equalsWE2(IDatatype dt) throws CoreseDatatypeException {
         if (dt.getCode() != UNDEF || getDatatype()!= dt.getDatatype()) {
             return super.equalsWE(dt);
         }

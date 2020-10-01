@@ -73,6 +73,8 @@ public class QueryProcess extends QuerySolver {
     static final String DB_INPUT = "fr.inria.corese.tinkerpop.dbinput";
     static final String FUNLIB = "/function/";
     public static final String SHACL = "http://ns.inria.fr/sparql-template/function/datashape/main.rq";
+    private static String solverVisitorName = null; 
+    private static String serverVisitorName = null;
     //sort query edges taking cardinality into account
     static boolean isSort = false;
 
@@ -404,6 +406,14 @@ public class QueryProcess extends QuerySolver {
     public Mappings query(String squery, Binding b) throws EngineException {
         return query(squery, Mapping.create(b), null);
     }
+   
+    public Mappings query(String squery, Context c, Binding b) throws EngineException {
+        return query(squery, Mapping.create(b), Dataset.create(c));
+    }
+    
+    public Mappings query(String squery, ProcessVisitor vis) throws EngineException {
+        return query(squery, Mapping.create(vis), null);
+    }
 
     /**
      * defaut and named specify a Dataset if the query has no from/using (resp.
@@ -486,12 +496,12 @@ public class QueryProcess extends QuerySolver {
      * RDF Graph g considered as a Query Graph Build a SPARQL BGP with g
      * Generate and eval q KGRAM Query
      */
-    public Mappings query(Graph g) {
+    public Mappings query(Graph g) throws EngineException {
         QueryGraph qg = QueryGraph.create(g);
         return query(qg);
     }
 
-    public Mappings query(QueryGraph qg) {
+    public Mappings query(QueryGraph qg) throws EngineException {
         Query q = qg.getQuery();
         return query(q);
     }
@@ -519,14 +529,14 @@ public class QueryProcess extends QuerySolver {
         return sparqlQueryUpdate(squery, ds, entail);
     }
 
-    public Mappings query(ASTQuery ast) {
+    public Mappings query(ASTQuery ast) throws EngineException {
         if (ast.isUpdate()) {
             return update(ast);
         }
         return query(ast, null);
     }
 
-    public Mappings query(ASTQuery ast, Dataset ds) {
+    public Mappings query(ASTQuery ast, Dataset ds) throws EngineException {
         if (ds != null) {
             ast.setDefaultDataset(ds);
         }
@@ -542,7 +552,7 @@ public class QueryProcess extends QuerySolver {
     /**
      * equivalent of std query(ast) but for update
      */
-    public Mappings update(ASTQuery ast) {
+    public Mappings update(ASTQuery ast) throws EngineException {
         Transformer transformer = transformer();
         Query query = transformer.transform(ast);
         return query(query);
@@ -596,9 +606,10 @@ public class QueryProcess extends QuerySolver {
     Mappings query(Node gNode, Query q, Mapping m, Dataset ds) throws EngineException {
         ASTQuery ast = getAST(q);
         if (ast.isLDScript()) {
-            if (Access.reject(Feature.LD_SCRIPT)) {
-                logger.info("LDScript rejected");
-                return Mappings.create(q);
+            if (Access.reject(Feature.LD_SCRIPT, getLevel(m, ds, q))) {
+                logger.info("LDScript unauthorized");
+                throw new EngineException("LDScript unauthorized") ;
+                //return Mappings.create(q);
             }
         }
         m = createMapping(m, ds);
@@ -617,8 +628,10 @@ public class QueryProcess extends QuerySolver {
 
         if (q.isUpdate() || q.isRule()) {
             log(Log.UPDATE, q);
-            if (Access.reject(Access.Feature.SPARQL_UPDATE, getLevel(q))) { 
-                return Mappings.create(q);
+            if (Access.reject(Access.Feature.SPARQL_UPDATE, getLevel(m, ds, q))) { 
+                logger.error("SPARQL Update unauthorized");
+                //return Mappings.create(q);
+                throw new EngineException("SPARQL Update unauthorized") ;
             }
             map = getQueryProcessUpdate().synUpdate(q, m, ds);
             // map is the result of the last Update in q
@@ -638,14 +651,48 @@ public class QueryProcess extends QuerySolver {
         finish(q, map);
         return map;
     }
-
+    
+    /**
+     * 
+     */
     Mapping createMapping(Mapping m, Dataset ds) {
-        if (m == null) {
-            if (ds != null && ds.getBinding() != null) {
-                m = Mapping.create(ds.getBinding());
+        if (ds != null) {
+            if (ds.getBinding() != null) {
+                if (m == null) {
+                    m = new Mapping();
+                }
+                if (m.getBind() == null) {
+                    m.setBind(ds.getBinding());
+                }
             }
-        } else if (m.getBind() == null && ds != null) {
-            m.setBind(ds.getBinding());
+            if (ds.getContext() != null) {
+                if (m == null) {
+                    m = new Mapping();
+                }
+                Binding b = (Binding) m.getBind();
+                if (b == null) {
+                    b = Binding.create();
+                    m.setBind(b);
+                }
+                b.setAccessLevel(ds.getContext().getLevel());
+                b.setDebug(ds.getContext().isDebug());
+            }
+        }
+        return m;
+    }
+    
+
+    Mapping createMapping2(Mapping m, Dataset ds) {
+        if (m == null) {
+            if (ds != null) { 
+                if (ds.getBinding() != null) {
+                    m = Mapping.create(ds.getBinding());
+                }
+            }
+        } else if (m.getBind() == null) { 
+            if (ds != null) {
+                m.setBind(ds.getBinding());
+            }
         }
         return m;
     }
@@ -670,7 +717,7 @@ public class QueryProcess extends QuerySolver {
         }
     }
 
-    Mappings synQuery(Node gNode, Query query, Mapping m) {
+    Mappings synQuery(Node gNode, Query query, Mapping m) throws EngineException {
         Mappings map = null;
         try {
             syncReadLock(query);
@@ -684,7 +731,7 @@ public class QueryProcess extends QuerySolver {
         }
     }
 
-    public Mappings basicQuery(Node gNode, Query q, Mapping m) {
+    public Mappings basicQuery(Node gNode, Query q, Mapping m) throws EngineException {
         return focusFrom(q).query(gNode, q, m);
     }
 
@@ -710,12 +757,24 @@ public class QueryProcess extends QuerySolver {
         return c;
     }
 
-    Level getLevel(Query q) {
-        Context c = getContext(q);
-        if (c == null) {
-            return Level.DEFAULT;
+    /**
+     * There may be a Context for access level
+     * There may be a Binding for global variables (which contains access level).
+     */
+    Level getLevel(Mapping m, Dataset ds, Query q) {
+        if (ds != null && ds.getContext() != null) {
+            return  ds.getContext().getLevel();
         }
-        return c.getLevel();
+        if (m != null && m.getBind() != null) {
+            return  ((Binding)m.getBind()).getAccessLevel();
+        }
+        return Level.DEFAULT;
+        
+//        Context c = getContext(q);
+//        if (c == null) {
+//            return Level.DEFAULT;
+//        }
+//        return c.getLevel();
     }
 
     static boolean isOverwrite() {
@@ -996,11 +1055,17 @@ public class QueryProcess extends QuerySolver {
     }
 
     // import function definition as public function
-    public void imports(String path) throws EngineException {
-        String q = "@public @import <%s> select where {}";
-        compile(String.format(q, path));
+    public boolean imports(String path) throws EngineException {
+        return imports(path, true);
     }
-
+    
+    public boolean imports(String path, boolean pub) throws EngineException {
+        String qp = "@public  @import <%s> select where {}";
+        String ql = "@import <%s> select where {}";
+        Query q = compile(String.format((pub)?qp:ql, path));
+        return ! q.isImportFailure();
+    }
+    
     IDatatype[] param(IDatatype... ldt) {
         return ldt;
     }
@@ -1015,10 +1080,15 @@ public class QueryProcess extends QuerySolver {
         }
         return call(EVENT, function, param, null);
     }
-
+    
+    public IDatatype callback(String name, IDatatype... param) throws EngineException {
+        return new QuerySolverVisitor(getEval()).callback(getEval(), name, param);
+    }
+    
     /**
      * Execute LDScript function defined as @public
      */
+    //@Override
     public IDatatype funcall(String name, IDatatype... param) throws EngineException {
         return funcall(name, (Context) null, param);
     }
@@ -1038,12 +1108,16 @@ public class QueryProcess extends QuerySolver {
     IDatatype call(String name, Function function, IDatatype[] param, Context c) throws EngineException {
         Eval eval = getEval();
         eval.getMemory().getQuery().setContext(c);
-        if (c != null && c.getBind() != null) {
-            getBind(eval).share(c.getBind());
+        Binding b = getBind(eval);
+        if (c != null) { 
+            if (c.getBind() != null) {
+                // share global variables
+                b.share(c.getBind());
+            }
+            b.setAccessLevel(c.getLevel());
         }
         return new Funcall(name).call((Interpreter) eval.getEvaluator(),
-                getBind(eval),
-                eval.getMemory(), eval.getProducer(), function, param);
+                b, eval.getMemory(), eval.getProducer(), function, param);
     }
 
     Binding getBind(Eval eval) {
@@ -1065,7 +1139,11 @@ public class QueryProcess extends QuerySolver {
      */
     public void init(Query q, Mapping m) {
         q.setInitMode(true);
-        super.query(q, m);
+        try {
+            super.query(q, m);
+        } catch (EngineException ex) {
+            java.util.logging.Logger.getLogger(QueryProcess.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        }
         q.setInitMode(false);
         // set Visitor ready to work (hence, it is not yet active, it is ready to be active)
         getCurrentEval().getVisitor().setActive(false);
@@ -1088,12 +1166,47 @@ public class QueryProcess extends QuerySolver {
         }
         return getCurrentEval().getVisitor();
     }
+    
+    
+    @Override
+    public ProcessVisitor createProcessVisitor(Eval eval) {
+        if (getVisitorName() == null) {
+            return super.createProcessVisitor(eval);
+        }
+        ProcessVisitor vis = createProcessVisitor(eval, getVisitorName());
+        if (vis == null) {
+            return super.createProcessVisitor(eval);
+        }
+        return vis;
+    }
 
-    Function getLinkedFunction(String name, IDatatype[] param) {
+    
+    public ProcessVisitor createProcessVisitor(Eval eval, String name) {
+        try {
+            Class visClass = Class.forName(name);
+            Object obj = visClass.getDeclaredConstructor(Eval.class).newInstance(eval);
+            if (obj instanceof ProcessVisitor) {
+                return (ProcessVisitor) obj;
+            } else {
+                logger.error("Uncorrect QuerySolverVisitor: " + name);
+            }
+        } catch (ClassNotFoundException | NoSuchMethodException | SecurityException | InstantiationException | 
+                IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
+            java.util.logging.Logger.getLogger(QueryProcess.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+            logger.error("Undefined QuerySolverVisitor: " + name);
+        }
+            
+        return null;
+    }
+    
+    
+    
+
+    Function getLinkedFunction(String name, IDatatype[] param) throws EngineException {
         Function function = getFunction(name, param);
         if (function == null) {
             //setLinkedFunction(true);
-            getLinkedFunctionBasic(name);
+            getLinkedFunction(name);
             function = getFunction(name, param);
         }
         return function;
@@ -1151,23 +1264,18 @@ public class QueryProcess extends QuerySolver {
      * 1- Linked Function 2- owl:imports
      */
     @Override
-    public Query parseQuery(String path) {
-        try {
-            String str = basicParse(path);
-            Query q = compile(str, new Dataset().setBase(path));
-            return q;
-        } catch (EngineException ex) {
-            logger.error(ex.getMessage());
-        }
-        return null;
+    public Query parseQuery(String path) throws EngineException {
+        String str = basicParse(path);
+        Query q = compile(str, new Dataset().setBase(path));
+        return q;
     }
 
     @Override
-    public void getLinkedFunction(String label) {
+    public void getLinkedFunction(String label) throws EngineException {
         getTransformer().getLinkedFunction(label);
     }
 
-    void getLinkedFunctionBasic(String label) {
+    void getLinkedFunctionBasic(String label) throws EngineException {
         getTransformer().getLinkedFunctionBasic(label);
     }
 
@@ -1175,7 +1283,6 @@ public class QueryProcess extends QuerySolver {
         if (transformer == null) {
             transformer = Transformer.create();
             transformer.setSPARQLEngine(this);
-            transformer.setLinkedFunction(isLinkedFunction());
         }
         return transformer;
     }
@@ -1194,5 +1301,34 @@ public class QueryProcess extends QuerySolver {
      */
     public void setQueryProcessUpdate(QueryProcessUpdate queryProcessUpdate) {
         this.queryProcessUpdate = queryProcessUpdate;
+    }
+
+    /**
+     * @return the solverVisitorName
+     */
+    public static String getVisitorName() {
+        return solverVisitorName;
+    }
+    
+
+    /**
+     * @param aSolverVisitorName the solverVisitorName to set
+     */
+    public static void setVisitorName(String aSolverVisitorName) {
+        solverVisitorName = aSolverVisitorName;
+    }
+
+    /**
+     * @return the serverVisitorName
+     */
+    public static String getServerVisitorName() {
+        return serverVisitorName;
+    }
+
+    /**
+     * @param serverVisitorName the serverVisitorName to set
+     */
+    public static void setServerVisitorName(String name) {
+        serverVisitorName = name;
     }
 }

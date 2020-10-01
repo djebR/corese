@@ -20,11 +20,14 @@ import fr.inria.corese.sparql.triple.cst.KeywordPP;
 import fr.inria.corese.kgram.api.core.ExpPattern;
 import fr.inria.corese.kgram.api.core.Expr;
 import fr.inria.corese.kgram.api.core.ExprType;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import java.util.HashMap;
 import java.util.logging.Level;
 
 public class Processor {
-	private static Logger logger = LoggerFactory.getLogger(Processor.class);
+	private static Logger logger = LoggerFactory.getLogger(Processor.class); 
+        
+        static Class[] noargs = new Class[0];
 
 	static final String functionPrefix = KeywordPP.CORESE_PREFIX;
         static final String DOM      = NSManager.DOM;
@@ -93,6 +96,7 @@ public class Processor {
 	public static final String RETURN  = "return";
 	public static final String SEQUENCE  = "sequence";
 	public static final String SET     = "set";
+	public static final String STATIC     = "static";
 	public static final String LET     = "let";
         public static final String FOR             = "for";
 	private static final String MAP     = "map";
@@ -663,6 +667,7 @@ public class Processor {
 		defoper(EXT+SEQUENCE,   ExprType.SEQUENCE);
 		defsysoper(LET,         ExprType.LET);
 		defoper(SET,            ExprType.SET);
+		defoper(STATIC,         ExprType.STATIC);
 		defoper(XT_JSON_OBJECT, ExprType.XT_JSON_OBJECT);
 		defoper(XT_MAP,         ExprType.XT_MAP);
 		defoper(XT_LIST,        ExprType.LIST);
@@ -787,6 +792,7 @@ public class Processor {
 		defoper(GROUPBY, ExprType.GROUPBY);
 		
 		defoper(EXT+"read",     ExprType.READ);
+		defoper(EXT+"httpget",  ExprType.XT_HTTP_GET);
 		defoper(READ,           ExprType.READ);
 		defoper(EXT+"write",    ExprType.WRITE);
 		defoper(WRITE,          ExprType.WRITE);
@@ -894,9 +900,11 @@ public class Processor {
                 defsysoper(AGGREGATE,       ExprType.AGGREGATE);
 
 		defoper(SIMILAR, ExprType.SIM);
+                defoper(EXT+"similarity", ExprType.SIM);
 		defoper(CSIMILAR, ExprType.SIM);
 		defoper(PSIMILAR, ExprType.PSIM);
 		defoper(ANCESTOR, ExprType.ANCESTOR);
+		defoper(EXT+"ancestor", ExprType.ANCESTOR);
 		defoper(DEPTH,   ExprType.DEPTH);
 		defoper(EXT+"depth",   ExprType.DEPTH);
 		defoper(GRAPH,   ExprType.KG_GRAPH);
@@ -1053,11 +1061,11 @@ public class Processor {
             define(key, value);
         }
         
-        static void defextoper(String key, int value){
+        static void defextoper(String key, int value) throws EngineException{
             defextoper(key, value, 2);
         }
          
-        static void defextoper(String key, int value, int arity){
+        static void defextoper(String key, int value, int arity) throws EngineException{
             define(key, value);
             defExtension(key, arity);
         }
@@ -1076,7 +1084,7 @@ public class Processor {
 		tname.put(value, key);  
 	}
         
-        static void defExtension(String key, int arity){
+        static void defExtension(String key, int arity) throws EngineException{
             String name = key.toLowerCase();
             if (! key.startsWith("http://")){
                 name = SPARQL + key;
@@ -1419,7 +1427,15 @@ public class Processor {
                     aclasses[i] = IDatatype.class;
                 }
                
-                setProcessor(className.getDeclaredConstructor().newInstance());
+                try {
+                    Method singleton = className.getMethod("singleton", noargs);
+                    setProcessor(singleton.invoke(className));
+                }
+                catch (NoSuchMethodException ex) {}
+                
+                if (getProcessor() == null) {
+                    setProcessor(className.getDeclaredConstructor().newInstance());
+                }
                 setMethod(className.getMethod(methodName, aclasses));
                 setCorrect(true);
             } catch (InvocationTargetException | ClassNotFoundException | SecurityException | NoSuchMethodException | InstantiationException | IllegalAccessException | IllegalArgumentException e) {

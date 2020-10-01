@@ -7,9 +7,14 @@ import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.core.PointerType;
 import fr.inria.corese.kgram.api.query.Environment;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.kgram.api.query.Producer;
+import fr.inria.corese.kgram.core.SparqlException;
 import fr.inria.corese.sparql.api.ComputerEval;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
+import fr.inria.corese.sparql.exceptions.EngineException;
+import fr.inria.corese.sparql.exceptions.UndefinedExpressionException;
+import fr.inria.corese.sparql.triple.parser.Access;
 
 /**
  * funcall(fun, exp) apply(fun, list)
@@ -27,7 +32,7 @@ public class Funcall extends LDScript {
     }
 
     @Override
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         IDatatype name = getBasicArg(0).eval(eval, b, env, p);
         IDatatype[] param = evalArguments(eval, b, env, p, 1);
         if (name == null || param == null) {
@@ -42,33 +47,44 @@ public class Funcall extends LDScript {
             param = DatatypeMap.toArray(param[0]);
         }
 
-        Function function = getFunction(eval, env, name, param.length);
+        Function function = getFunction(eval, b, env, p, name, param.length);
         if (function == null) {
             return null;
         }
         return call(eval, b, env, p, function, param);
     }
     
-    Function getFunction(Computer eval, Environment env, IDatatype dt, int n) {
+    Function getFunction(Computer eval, Binding b, Environment env, Producer p, IDatatype dt, int n) throws EngineException {
         String name = dt.stringValue();
         Function function = (Function) eval.getDefineGenerate(this, env, name, n);
+
         if (function == null) {
             if (dt.pointerType() == PointerType.EXPRESSION) {
                 // lambda expression, arity is not correct                
-            } else if (env.getEval() != null) {
-                env.getEval().getSPARQLEngine().getLinkedFunction(name);
-                function = eval.getDefineGenerate(this, env, name, n);
-
+            } 
+            else if (env.getEval() != null) {
+                if (accept(Access.Feature.LINKED_FUNCTION, eval, b, env, p)) {
+                    getLinkedFunction(name, env);
+                    function = eval.getDefineGenerate(this, env, name, n);
+                }
                 if (function == null) {
-                    logger.error("Undefined function: " + name + " arity: " + n);
-                    logger.error(this.toString());
+                    throw new UndefinedExpressionException(UNDEFINED_EXPRESSION_MESS + ": " + toString());
                 }
             }
         }
         return function;
     }
+    
+    void getLinkedFunction(String name, Environment env) throws EngineException {
+        try {
+            env.getEval().getSPARQLEngine().getLinkedFunction(name);
+        } catch (SparqlException ex) {
+            throw EngineException.cast(ex);
+        }
+    }
 
-    public IDatatype call(Computer eval, Binding b, Environment env, Producer p, Function function, IDatatype... param) {
+    public IDatatype call(Computer eval, Binding b, Environment env, Producer p, Function function, IDatatype... param) 
+            throws EngineException{
         Expression fun = function.getSignature();
         b.set(function, fun.getExpList(), param);
         IDatatype dt = null;

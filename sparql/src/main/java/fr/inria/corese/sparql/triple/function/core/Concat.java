@@ -12,6 +12,7 @@ import fr.inria.corese.kgram.api.query.Producer;
 import fr.inria.corese.sparql.api.Computer;
 import fr.inria.corese.sparql.api.IDatatype;
 import fr.inria.corese.sparql.datatype.DatatypeMap;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.function.term.Binding;
 import fr.inria.corese.sparql.triple.function.term.TermEval;
 import fr.inria.corese.sparql.triple.parser.ASTQuery;
@@ -36,7 +37,7 @@ public class Concat extends TermEval {
     }
 
     @Override
-    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) {
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
         if (arity() == 0) {
             return DatatypeMap.EMPTY_STRING;
         }
@@ -48,7 +49,7 @@ public class Concat extends TermEval {
         }
     }
 
-    IDatatype stlconcat(Computer eval, Binding b, Environment env, Producer p) {
+    IDatatype stlconcat(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
 
         StringBuilder sb = new StringBuilder();
         ArrayList<Expression> list = null;
@@ -130,6 +131,9 @@ public class Concat extends TermEval {
                 list.add(constant(result(env, sb, isString, (ok && lang != null) ? lang : null, true)));
             }
             Expr e = createFunction(Processor.CONCAT, list, env);
+            if (e == null) {
+                return null;
+            }
             IDatatype res = DatatypeMap.createFuture(e);
             return res;
         }
@@ -139,7 +143,7 @@ public class Concat extends TermEval {
 
     
 
-    IDatatype concat(Computer eval, Binding b, Environment env, Producer p) {
+    IDatatype concat(Computer eval, Binding b, Environment env, Producer p) throws EngineException {
 
         StringBuilder sb = new StringBuilder();
         ArrayList<Object> list = null;
@@ -205,7 +209,12 @@ public class Concat extends TermEval {
 
     Expr createFunction(String name, ArrayList<Expression> args, Environment env) {
         ASTQuery ast = (ASTQuery) env.getQuery().getAST();
-        return ast.createFunction(name, args);
+        try {
+            return ast.createFunction(name, args);
+        } catch (EngineException ex) {
+            log(ex.getMessage());
+            return null;
+        }
     }
 
     /**

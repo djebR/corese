@@ -1,5 +1,7 @@
 package fr.inria.corese.sparql.datatype;
 
+import fr.inria.corese.sparql.datatype.extension.CoreseIterate;
+import fr.inria.corese.sparql.datatype.extension.CoreseUndefFuture;
 import fr.inria.corese.kgram.api.core.DatatypeValueFactory;
 import java.util.Hashtable;
 
@@ -11,11 +13,17 @@ import fr.inria.corese.sparql.exceptions.CoreseDatatypeException;
 import fr.inria.corese.kgram.api.core.ExpType;
 import fr.inria.corese.kgram.api.core.Node;
 import fr.inria.corese.kgram.api.core.Pointerable;
+import fr.inria.corese.sparql.datatype.extension.CoreseMap;
+import fr.inria.corese.sparql.datatype.extension.CoreseList;
+import fr.inria.corese.sparql.datatype.extension.CoreseJSON;
+import fr.inria.corese.sparql.datatype.extension.CoreseXML;
+import fr.inria.corese.sparql.datatype.extension.CoresePointer;
 import fr.inria.corese.sparql.triple.parser.NSManager;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import org.json.JSONObject;
@@ -615,7 +623,7 @@ public class DatatypeMap implements Cst, RDF, DatatypeValueFactory {
     public static IDatatype createObject(Object obj) {
         return createObject(null, obj);
     }
-   
+      
     static String defaultName(Object obj) {
         return Long.toString(obj.hashCode());
     }
@@ -671,6 +679,8 @@ public class DatatypeMap implements Cst, RDF, DatatypeValueFactory {
         return dt;
     }
     
+    void test() {}
+    
     public static CoreseMap map() {
         return new CoreseMap();
     }
@@ -694,7 +704,16 @@ public class DatatypeMap implements Cst, RDF, DatatypeValueFactory {
     public static IDatatype createList(IDatatype... ldt) {
         return new CoreseList(ldt);
     }
-
+        
+    public static IDatatype newList(Enumeration en) {
+        IDatatype list = DatatypeMap.list();
+        while (en.hasMoreElements()) {
+            Object name = en.nextElement();
+            list.getList().add(DatatypeMap.castObject(name));
+        }
+        return list;
+    } 
+    
     public static IDatatype newList(IDatatype... ldt) {
         return new CoreseList(ldt);
     }
@@ -704,7 +723,7 @@ public class DatatypeMap implements Cst, RDF, DatatypeValueFactory {
         for (Object obj :  ldt) {
             list.add(getValue(obj));
         }
-        return new CoreseList(list);
+        return newList(list);
     }
     
     public static IDatatype newList(List<IDatatype> l) {
@@ -716,7 +735,7 @@ public class DatatypeMap implements Cst, RDF, DatatypeValueFactory {
         for (Node node : list) {
             l.add((IDatatype) node.getDatatypeValue());
         }
-        return DatatypeMap.newList(l);
+        return newList(l);
     }
           
     public static IDatatype[] toArray(IDatatype dt) {

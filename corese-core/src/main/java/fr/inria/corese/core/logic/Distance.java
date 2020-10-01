@@ -42,6 +42,7 @@ public class Distance {
     private Graph graph;
     Node root, subEntityOf, sameAs, equivAs;
     NodeList topList;
+    List<Node> topLevel;
     Integer MONE = new Integer(-1);
     Integer ONE = new Integer(1);
 
@@ -77,7 +78,13 @@ public class Distance {
             //setStep(CSTEP);
         }
 
+        // rdfs:Resource or owl:Thing
         topList = new NodeList(top);
+        topLevel = new ArrayList<>(); 
+        // top level classes which are subClassOf nobody
+        if (subEntityOf != null) {
+            topLevel = graph.getTopLevel(subEntityOf);
+        }
         table = new Hashtable<>();
         depth = new Hashtable<>();
         sameAs = getGraph().getPropertyNode(OWL.SAMEAS);
@@ -160,12 +167,24 @@ public class Distance {
 
     void initDepth() {
         for (Node sup : topList) {
-            initDepth(sup);
+            initDepth(sup, 0);
+        }
+        initDepthTopLevel();
+    }
+    
+    /**
+     * depth of hierarchy of classes that are subClassOf nobody
+     * depth of such top level classes is 1
+     * Hence we emulate subClassOf rdfs:Resource
+     * */
+    void initDepthTopLevel() {
+        for (Node node : topLevel) {
+            initDepth(node, 1);
         }
     }
 
-    void initDepth(Node sup) {
-        setDepth(sup, 0);
+    void initDepth(Node sup, int depth) {
+        setDepth(sup, depth);
         table.clear();
         depth(sup);
         if (depthMax == 0) {
@@ -214,21 +233,16 @@ public class Distance {
 
     void reset() {
         depth.clear();
-//		for (Node sup : topList){
-//			if (getDepth(sup)!=null){
-//				reset(sup);
-//			}
-//		}
     }
 
-    void reset(Node sup) {
-        setDepth(sup, null);
-        for (Node sub : getSubEntities(sup)) {
-            if (sub != null) {
-                reset(sub);
-            }
-        }
-    }
+//    void reset(Node sup) {
+//        setDepth(sup, null);
+//        for (Node sub : getSubEntities(sup)) {
+//            if (sub != null) {
+//                reset(sub);
+//            }
+//        }
+//    }
 
     /**
      * Used by semantic distance Node with no depth (not in subClassOf hierarchy
@@ -281,6 +295,10 @@ public class Distance {
         }
         return false;
     }
+    
+    boolean isTopLevel(Node n) {
+        return topLevel.contains(n);
+    }
 
     /**
      * Node with no super class is considered subClassOf root
@@ -298,7 +316,7 @@ public class Distance {
 
     public Iterable<Node> getSubEntities(Node node) {
         if (subEntityOf == null) {
-            return new ArrayList<Node>();
+            return new ArrayList<>();
         }
         return getGraph().getNodes(subEntityOf, node, 1);
     }
@@ -311,10 +329,6 @@ public class Distance {
      * hence the first common ancestor is the deepest
      */
     public Double sdistance(Node c1, Node c2) {
-//		Entailment ee = graph.getEntailment();
-//		if (ee.isSubClassOf(c1, c2) || ee.isSubClassOf(c2, c1)){
-//			return 0.0;
-//		}
         return distance(c1, c2);
     }
 
@@ -373,6 +387,10 @@ public class Distance {
 
     }
 
+    /**
+     * isDist = true  : return distance Double
+     * isDist = false : return common ancestor Node 
+     */
     Object distance(Node n1, Node n2, boolean isDist) {
 
         Table t1 = new Table();
@@ -412,6 +430,20 @@ public class Distance {
                 return result(null, 0.0, isDist);
             }
         }
+        
+        if (max1 == 1) {
+            if (isTopLevel(n1)) {
+                endC1 = true;
+            } 
+        }
+
+        if (max2 == 1) {
+            if (isTopLevel(n2)) {
+                endC2 = true;
+            } 
+        }
+        
+        
 
         if (t1.contains(n2)) {
             end = true;

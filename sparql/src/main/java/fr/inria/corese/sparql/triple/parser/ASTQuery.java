@@ -24,6 +24,7 @@ import fr.inria.corese.sparql.compiler.java.JavaCompiler;
 import fr.inria.corese.kgram.api.core.ExprType;
 import fr.inria.corese.kgram.api.query.ASTQ;
 import fr.inria.corese.sparql.api.QueryVisitor;
+import fr.inria.corese.sparql.exceptions.EngineException;
 import fr.inria.corese.sparql.triple.parser.Access.Level;
 import java.io.IOException;
 import java.util.Map;
@@ -321,6 +322,14 @@ public class ASTQuery
     }
     
     public Level getLevel() {
+        if (getContext() == null) {
+            return Level.DEFAULT;
+        }
+        return getContext().getLevel();
+    }
+
+    
+    public Level getLevel2() {
         if (isUserQuery()) {
             return Level.PUBLIC;
         }
@@ -1185,7 +1194,7 @@ public class ASTQuery
      */
     public Function defineFunction(Constant name, Constant type, ExpressionList el, Expression exp, Metadata annot) {
         Function fun = defFunction(name, type, el, exp, annot,false);
-        record(fun);    
+        record(fun); 
         return fun;
     }
     
@@ -1260,7 +1269,7 @@ public class ASTQuery
      * Runtime create extension function ext for predefined  function name
      * function rq:isURI(?x) { isURI(?x) }
      */
-    public Function defExtension(String ext, String name, int arity) {
+    public Function defExtension(String ext, String name, int arity) throws EngineException {
         Constant c = createQNameURI(ext);
         ExpressionList el = new ExpressionList();
         for (int i = 0; i < arity; i++) {
@@ -1383,9 +1392,20 @@ public class ASTQuery
         exp.add(ee);
         return exp;
     }
+    
+    public Term set(Variable var, Expression exp, boolean stat) {
+        if (stat) {
+            return setStatic(var, exp);
+        }
+        return set(var, exp);
+    }
 
     public Term set(Variable var, Expression exp) {
         return Term.function(Processor.SET, var, exp);
+    }
+    
+    public Term setStatic(Variable var, Expression exp) {
+        return Term.function(Processor.STATIC, var, exp);
     }
 
     /**
@@ -1883,7 +1903,7 @@ public class ASTQuery
     }
     
         // at runtime
-    public Term createFunction(String name, ArrayList<Expression> args) {
+    public Term createFunction(String name, ArrayList<Expression> args) throws EngineException {
         Term t = createFunction(name);
         t.setArgs(args);
         t.compile(this);
@@ -2730,7 +2750,7 @@ public class ASTQuery
      ***********************************************************
      */
     
-    public String toJava() throws IOException{
+    public String toJava() throws IOException, EngineException{
           JavaCompiler jc = new JavaCompiler();
           jc.compile(this);
           return jc.toString();
